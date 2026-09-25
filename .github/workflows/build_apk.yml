@@ -15,12 +15,8 @@ jobs:
 
       - name: Unpack Project Zip
         run: |
-          if ls *.zip >/dev/null 2>&1; then
-            unzip -o *.zip
-          fi
-          if [ -d emergency_request ]; then
-            cp -R emergency_request/. .
-          fi
+          if ls *.zip >/dev/null 2>&1; then unzip -o *.zip; fi
+          if [ -d emergency_request ]; then cp -R emergency_request/. .; fi
 
       - name: Set up Java
         uses: actions/setup-java@v4
@@ -39,19 +35,17 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
-        run: |
-          python3 - <<'PY'
-          import json, os
+        run: python3 -c "import json,os;c=lambda n:os.environ.get(n,'').strip().replace(chr(13),'').replace(chr(10),'');d={'SUPABASE_URL':c('SUPABASE_URL'),'SUPABASE_ANON_KEY':c('SUPABASE_ANON_KEY'),'MAPBOX_ACCESS_TOKEN':c('MAPBOX_ACCESS_TOKEN')};missing=[k for k,v in d.items() if not v];assert not missing,'Missing secrets: '+','.join(missing);open('config.json','w').write(json.dumps(d,separators=(',',':')))"
 
-          def clean(name):
-              v = os.environ.get(name, "").strip().replace("\r", "").replace("\n", "")
-              if not v:
-                  raise SystemExit(f"Missing secret: {name}")
-              return v
+      - name: Install Dependencies
+        run: flutter pub get
 
-          data = {
-              "SUPABASE_URL": clean("SUPABASE_URL"),
-              "SUPABASE_ANON_KEY": clean("SUPABASE_ANON_KEY"),
-              "MAPBOX_ACCESS_TOKEN": clean("MAPBOX_ACCESS_TOKEN"),
-          }
-          open("config.json", "w", encoding="utf-
+      - name: Build Release APK
+        run: flutter build apk --release --dart-define-from-file=config.json
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: solace-client-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
