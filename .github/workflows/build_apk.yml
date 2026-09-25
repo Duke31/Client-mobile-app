@@ -1,0 +1,104 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Unpack Project Zip
+        run: |
+          echo "Unzipping uploaded project..."
+          unzip -o *.zip
+          if [ -d "emergency_request" ]; then
+            cp -r emergency_request/* .
+          fi
+          ls -la
+
+      - name: Set up Java JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'zulu'
+          java-version: '17'
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: 'stable'
+          cache: true
+
+      - name: Generate Android Shell
+        run: |
+          cp -r lib lib_backup
+          flutter create --platforms=android --project-name emergency_request .
+          cp -r lib_backup/* lib/
+          rm -rf lib_backup
+
+      - name: Inject Android Permissions
+        run: |
+          python3 -c '
+          import os
+          path = "android/app/src/main/AndroidManifest.xml"
+          if os.path.exists(path):
+              with open(path, "r") as f:
+                  content = f.read()
+              perms = """
+              <uses-permission android:name="android.permission.INTERNET"/>
+              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
+              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
+          """
+              if "android.permission.ACCESS_FINE_LOCATION" not in content:
+                  content = content.replace("<manifest", "<manifest" + perms, 1)
+                  with open(path, "w") as f:
+                      f.write(content)
+                  print("Permissions injected.")
+          '
+
+      - name: Harmonize Database Parameters
+        run: |
+          python3 -c '
+          import os, glob
+          for dart_file in glob.glob("lib/**/*.dart", recursive=True):
+              with open(dart_file, "r") as f:
+                  code = f.read()
+              new_code = code.replace("\x27p_lat\x27", "\x27p_patient_lat\x27")
+              new_code = new_code.replace("\x27p_lng\x27", "\x27p_patient_lng\x27")
+              new_code = new_code.replace("\x27p_address\x27", "\x27p_patient_address\x27")
+              new_code = new_code.replace("\"p_lat\"", "\"p_patient_lat\"")
+              new_code = new_code.replace("\"p_lng\"", "\"p_patient_lng\"")
+              new_code = new_code.replace("\"p_address\"", "\"p_patient_address\"")
+              if new_code != code:
+                  with open(dart_file, "w") as f:
+                      f.write(new_code)
+                  print(f"Updated RPC parameters in {dart_file}")
+          '
+
+      - name: Inject Environment Secrets
+        run: |
+          cat <<EOF > config.json
+          {
+            "SUPABASE_URL": "${{ secrets.SUPABASE_URL }}",
+            "SUPABASE_ANON_KEY": "${{ secrets.SUPABASE_ANON_KEY }}",
+            "MAPBOX_ACCESS_TOKEN": "${{ secrets.MAPBOX_ACCESS_TOKEN }}"
+          }
+          EOF
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Build Release APK
+        run: flutter build apk --release --dart-define-from-file=config.json
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: solace-client-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
