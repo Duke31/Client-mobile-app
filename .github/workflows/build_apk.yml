@@ -2,12 +2,12 @@ name: Build Android APK
 
 on:
   push:
-    branches: [ main ]
+    branches: [main]
   workflow_dispatch:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-22.04
 
     steps:
       - name: Checkout Repository
@@ -15,66 +15,26 @@ jobs:
 
       - name: Unpack Project Zip
         run: |
-          echo "Unzipping uploaded project..."
-          unzip -o *.zip
-          if [ -d "emergency_request" ]; then
-            cp -r emergency_request/* .
+          if ls *.zip >/dev/null 2>&1; then
+            unzip -o *.zip
           fi
-          ls -la
+          if [ -d emergency_request ]; then
+            cp -R emergency_request/. .
+          fi
 
-      - name: Set up Java JDK
+      - name: Set up Java
         uses: actions/setup-java@v4
         with:
-          distribution: 'zulu'
-          java-version: '17'
+          distribution: temurin
+          java-version: "17"
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
-          channel: 'stable'
+          channel: stable
           cache: true
 
-      - name: Generate Android Shell
-        run: |
-          cp -r lib lib_backup
-          flutter create --platforms=android --project-name emergency_request .
-          cp -r lib_backup/* lib/
-          rm -rf lib_backup
-
-      - name: Inject Android Permissions
-        run: |
-          python3 -c '
-          path = "android/app/src/main/AndroidManifest.xml"
-          with open(path, "r") as f:
-              content = f.read()
-          perms = "    <uses-permission android:name=\"android.permission.INTERNET\"/>\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>\n    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"/>\n"
-          if "ACCESS_FINE_LOCATION" not in content:
-              content = content.replace("<application", perms + "    <application", 1)
-              with open(path, "w") as f:
-                  f.write(content)
-              print("Permissions cleanly injected.")
-          '
-
-      - name: Harmonize Database Parameters
-        run: |
-          python3 -c '
-          import os, glob
-          for dart_file in glob.glob("lib/**/*.dart", recursive=True):
-              with open(dart_file, "r") as f:
-                  code = f.read()
-              new_code = code.replace("\x27p_lat\x27", "\x27p_patient_lat\x27")
-              new_code = new_code.replace("\x27p_lng\x27", "\x27p_patient_lng\x27")
-              new_code = new_code.replace("\x27p_address\x27", "\x27p_patient_address\x27")
-              new_code = new_code.replace("\"p_lat\"", "\"p_patient_lat\"")
-              new_code = new_code.replace("\"p_lng\"", "\"p_patient_lng\"")
-              new_code = new_code.replace("\"p_address\"", "\"p_patient_address\"")
-              if new_code != code:
-                  with open(dart_file, "w") as f:
-                      f.write(new_code)
-                  print(f"Updated RPC parameters in {dart_file}")
-          '
-
-      -       - name: Inject Environment Secrets
+      - name: Inject Environment Secrets
         env:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
@@ -94,18 +54,4 @@ jobs:
               "SUPABASE_ANON_KEY": clean("SUPABASE_ANON_KEY"),
               "MAPBOX_ACCESS_TOKEN": clean("MAPBOX_ACCESS_TOKEN"),
           }
-          open("config.json", "w").write(json.dumps(data, separators=(",", ":")))
-          PY
-
-      - name: Install Dependencies
-        run: flutter pub get
-
-      - name: Build Release APK
-        run: flutter build apk --release --dart-define-from-file=config.json
-
-      - name: Upload APK Artifact
-        uses: actions/upload-artifact@v4
-        with:
-          name: solace-client-release
-          path: build/app/outputs/flutter-apk/app-release.apk
-          retention-days: 14
+          open("config.json", "w", encoding="utf-
