@@ -54,6 +54,23 @@ jobs:
       - name: Ensure Android platform
         run: flutter create --platforms=android --project-name emergency_request --org com.example .
 
+      - name: Add location permissions
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          text = p.read_text()
+          if "ACCESS_FINE_LOCATION" not in text:
+              insert = (
+                  "\n    <uses-permission android:name=\"android.permission.INTERNET\" />"
+                  "\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />"
+                  "\n    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />"
+              )
+              i = text.find(">")
+              text = text[: i + 1] + insert + text[i + 1 :]
+              p.write_text(text)
+          PY
+
       - name: Build Release APK
         run: flutter build apk --release --dart-define-from-file=config.json
 
