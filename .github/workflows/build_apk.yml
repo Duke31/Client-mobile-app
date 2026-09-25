@@ -44,21 +44,15 @@ jobs:
       - name: Inject Android Permissions
         run: |
           python3 -c '
-          import os
           path = "android/app/src/main/AndroidManifest.xml"
-          if os.path.exists(path):
-              with open(path, "r") as f:
-                  content = f.read()
-              perms = """
-              <uses-permission android:name="android.permission.INTERNET"/>
-              <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION"/>
-              <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION"/>
-          """
-              if "android.permission.ACCESS_FINE_LOCATION" not in content:
-                  content = content.replace("<manifest", "<manifest" + perms, 1)
-                  with open(path, "w") as f:
-                      f.write(content)
-                  print("Permissions injected.")
+          with open(path, "r") as f:
+              content = f.read()
+          perms = "    <uses-permission android:name=\"android.permission.INTERNET\"/>\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\"/>\n    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\"/>\n"
+          if "ACCESS_FINE_LOCATION" not in content:
+              content = content.replace("<application", perms + "    <application", 1)
+              with open(path, "w") as f:
+                  f.write(content)
+              print("Permissions cleanly injected.")
           '
 
       - name: Harmonize Database Parameters
