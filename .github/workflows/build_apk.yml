@@ -74,15 +74,28 @@ jobs:
                   print(f"Updated RPC parameters in {dart_file}")
           '
 
-      - name: Inject Environment Secrets
+      -       - name: Inject Environment Secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
         run: |
-          cat <<EOF > config.json
-          {
-            "SUPABASE_URL": "${{ secrets.SUPABASE_URL }}",
-            "SUPABASE_ANON_KEY": "${{ secrets.SUPABASE_ANON_KEY }}",
-            "MAPBOX_ACCESS_TOKEN": "${{ secrets.MAPBOX_ACCESS_TOKEN }}"
+          python3 - <<'PY'
+          import json, os
+
+          def clean(name):
+              v = os.environ.get(name, "").strip().replace("\r", "").replace("\n", "")
+              if not v:
+                  raise SystemExit(f"Missing secret: {name}")
+              return v
+
+          data = {
+              "SUPABASE_URL": clean("SUPABASE_URL"),
+              "SUPABASE_ANON_KEY": clean("SUPABASE_ANON_KEY"),
+              "MAPBOX_ACCESS_TOKEN": clean("MAPBOX_ACCESS_TOKEN"),
           }
-          EOF
+          open("config.json", "w").write(json.dumps(data, separators=(",", ":")))
+          PY
 
       - name: Install Dependencies
         run: flutter pub get
