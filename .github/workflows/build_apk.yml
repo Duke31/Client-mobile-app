@@ -18,6 +18,11 @@ jobs:
           if ls *.zip >/dev/null 2>&1; then unzip -o *.zip; fi
           if [ -d emergency_request ]; then cp -R emergency_request/. .; fi
 
+      - name: Fix submitted screen
+        run: |
+          sed -i '/interactive: false,/d' emergency_request/lib/screens/submitted_screen.dart || true
+          sed -i '/interactive: false,/d' lib/screens/submitted_screen.dart || true
+
       - name: Set up Java
         uses: actions/setup-java@v4
         with:
