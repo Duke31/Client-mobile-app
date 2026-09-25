@@ -35,7 +35,13 @@ jobs:
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
           MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
-        run: python3 -c "import json,os;c=lambda n:os.environ.get(n,'').strip().replace(chr(13),'').replace(chr(10),'');d={'SUPABASE_URL':c('SUPABASE_URL'),'SUPABASE_ANON_KEY':c('SUPABASE_ANON_KEY'),'MAPBOX_ACCESS_TOKEN':c('MAPBOX_ACCESS_TOKEN')};missing=[k for k,v in d.items() if not v];assert not missing,'Missing secrets: '+','.join(missing);open('config.json','w').write(json.dumps(d,separators=(',',':')))"
+        run: |
+          jq -n \
+            --arg url "$SUPABASE_URL" \
+            --arg key "$SUPABASE_ANON_KEY" \
+            --arg token "$MAPBOX_ACCESS_TOKEN" \
+            '{SUPABASE_URL:$url,SUPABASE_ANON_KEY:$key,MAPBOX_ACCESS_TOKEN:$token}' \
+            > config.json
 
       - name: Install Dependencies
         run: flutter pub get
