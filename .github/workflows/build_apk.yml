@@ -54,6 +54,16 @@ jobs:
       - name: Ensure Android platform
         run: flutter create --platforms=android --project-name emergency_request --org com.example .
 
+      - name: Apply Solace Launcher Branding
+        run: |
+          if [ -d assets/launcher ]; then
+            cp -R assets/launcher/* android/app/src/main/res/ || true
+          fi
+          if [ -d emergency_request/assets ]; then
+            mkdir -p assets
+            cp -R emergency_request/assets/* assets/ || true
+          fi
+
       - name: Add location permissions
         run: |
           python3 - <<'PY'
