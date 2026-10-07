@@ -7,14 +7,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../maps/mapbox_geocoding.dart';
 import '../maps/mapbox_map_view.dart';
 import '../services/emergency_service.dart';
-import '../services/emergency_type.dart';
 import '../services/emergency_sms_fallback.dart';
-import '../config/env.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import 'profile_screen.dart';
 import 'submitted_screen.dart';
-import 'live_ambulance_tracking_screen.dart';
 
 const LatLng kDefaultCenter = LatLng(6.5244, 3.3792);
 
@@ -39,7 +36,6 @@ class _RequestScreenState extends State<RequestScreen>
 
   bool _loadingLocation = true;
   bool _submitting = false;
-  bool _fallbackTriggered = false;
   LocationFix? _fix;
   String _address = '';
 
@@ -352,7 +348,7 @@ class _RequestScreenState extends State<RequestScreen>
       if (!mounted) return;
       setState(() {
         _submitting = false;
-        _fallbackTriggered = true;
+        
       });
       await _showOfflineFallbackSheet(fix, intake);
     } catch (e) {
@@ -366,7 +362,7 @@ class _RequestScreenState extends State<RequestScreen>
       setState(() {
         _submitting = false;
         if (looksNetwork) {
-          _fallbackTriggered = true;
+          
         }
       });
       if (looksNetwork) {
