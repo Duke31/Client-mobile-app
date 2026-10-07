@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../theme/app_theme.dart';
+import '../services/client_request_detail.dart';
 import 'home_screen.dart';
 import 'package:latlong2/latlong.dart';
 import 'live_ambulance_tracking_screen.dart';
@@ -214,16 +215,21 @@ class _SubmittedScreenState extends State<SubmittedScreen>
     if (reqId.isEmpty) return;
     Map<String, dynamic>? req;
 
-    try {
-      req = await _supabase
-          .from('emergency_requests')
-          .select('*, hospital:hospitals(*), driver:drivers(*)')
-          .eq('id', reqId)
-          .maybeSingle();
-    } catch (e) {
-      debugPrint('Submitted rich select failed: $e');
-    }
+    // 1) Preferred: SECURITY DEFINER RPC (bypasses hospital/driver RLS safely)
+    req = await ClientRequestDetail.fetch(_supabase, reqId);
 
+    // 2) Fallback: direct selects
+    if (req == null) {
+      try {
+        req = await _supabase
+            .from('emergency_requests')
+            .select('*, hospital:hospitals(*), driver:drivers(*)')
+            .eq('id', reqId)
+            .maybeSingle();
+      } catch (e) {
+        debugPrint('Submitted rich select failed: $e');
+      }
+    }
     if (req == null) {
       try {
         req = await _supabase
@@ -256,15 +262,10 @@ class _SubmittedScreenState extends State<SubmittedScreen>
 
     final hospital = req['hospital'];
     if (hospital is Map) {
-      hName = hospital['name']?.toString() ??
-          hospital['hospital_name']?.toString() ??
-          hName;
-      hAddr = hospital['address']?.toString() ??
-          hospital['location']?.toString() ??
-          hAddr;
+      hName = hospital['name']?.toString() ?? hName;
+      hAddr = hospital['address']?.toString() ?? hAddr;
       hPhone = hospital['intake_phone']?.toString() ??
           hospital['phone']?.toString() ??
-          hospital['emergency_phone']?.toString() ??
           hPhone;
     }
 
@@ -273,78 +274,25 @@ class _SubmittedScreenState extends State<SubmittedScreen>
       dName = driver['display_name']?.toString() ??
           driver['full_name']?.toString() ??
           dName;
-      vLabel = driver['vehicle_label']?.toString() ??
-          driver['vehicle_plate']?.toString() ??
-          vLabel;
+      vLabel = driver['vehicle_label']?.toString() ?? vLabel;
       dPhone = driver['phone']?.toString() ??
           driver['phone_number']?.toString() ??
           dPhone;
     }
 
-    final hospitalId = req['hospital_id']?.toString();
-    if (hospitalId != null &&
-        hospitalId.isNotEmpty &&
-        (hName == null || hName.isEmpty || hPhone == null || hPhone.isEmpty)) {
-      try {
-        final hRow = await _supabase
-            .from('hospitals')
-            .select('name, address, intake_phone, phone')
-            .eq('id', hospitalId)
-            .maybeSingle();
-        if (hRow != null) {
-          hName = hRow['name']?.toString() ?? hName;
-          hAddr = hRow['address']?.toString() ?? hAddr;
-          hPhone = hRow['intake_phone']?.toString() ??
-              hRow['phone']?.toString() ??
-              hPhone;
-        }
-      } catch (e) {
-        debugPrint('Hospital secondary fetch: $e');
-      }
-    }
-
-    final driverId = req['driver_id']?.toString();
-    if (driverId != null &&
-        driverId.isNotEmpty &&
-        (dName == null ||
-            dName.isEmpty ||
-            dPhone == null ||
-            dPhone.isEmpty ||
-            vLabel == null ||
-            vLabel.isEmpty)) {
-      try {
-        final dRow = await _supabase
-            .from('drivers')
-            .select(
-              'display_name, full_name, vehicle_label, phone, phone_number',
-            )
-            .eq('id', driverId)
-            .maybeSingle();
-        if (dRow != null) {
-          dName = dRow['display_name']?.toString() ??
-              dRow['full_name']?.toString() ??
-              dName;
-          vLabel = dRow['vehicle_label']?.toString() ?? vLabel;
-          dPhone = dRow['phone']?.toString() ??
-              dRow['phone_number']?.toString() ??
-              dPhone;
-        }
-      } catch (e) {
-        debugPrint('Driver secondary fetch: $e');
-      }
-    }
-
     if (!mounted) return;
     setState(() {
-      _hospitalName = hName;
-      _hospitalAddress = hAddr;
-      _hospitalPhone = hPhone;
-      _driverName = dName;
-      _vehicleLabel = vLabel;
-      _driverPhone = dPhone;
-      if (newStatus != null) {
-        _currentStatus = newStatus;
-      }
+      _hospitalName = (hName != null && hName.trim().isNotEmpty) ? hName : _hospitalName;
+      _hospitalAddress =
+          (hAddr != null && hAddr.trim().isNotEmpty) ? hAddr : _hospitalAddress;
+      _hospitalPhone =
+          (hPhone != null && hPhone.trim().isNotEmpty) ? hPhone : _hospitalPhone;
+      _driverName = (dName != null && dName.trim().isNotEmpty) ? dName : _driverName;
+      _vehicleLabel =
+          (vLabel != null && vLabel.trim().isNotEmpty) ? vLabel : _vehicleLabel;
+      _driverPhone =
+          (dPhone != null && dPhone.trim().isNotEmpty) ? dPhone : _driverPhone;
+      if (newStatus != null) _currentStatus = newStatus;
     });
   }
 
