@@ -414,7 +414,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
       MaterialPageRoute<void>(
         builder: (_) => LiveAmbulanceTrackingScreen(
           requestId: id,
-          patientLatitude: widget.latitude,
+          patientLocation: (widget.latitude != null && widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : const LatLng(0, 0),
           
           patientAddress: widget.address ?? widget.patientAddress ?? 'Scene Location',
         ),
@@ -440,7 +440,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
 
   Future<void> _openWhatsApp(String phone, String body) async {
     final clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
-    final uri = Uri.parse('https:patientLongitude: widget.longitude,
+    final uri = Uri.parse('https://wa.me/$clean?text=${Uri.encodeComponent(body)}');
     try {
       await launchUrl(uri, mode: LaunchMode.externalApplication);
     } catch (_) {}
@@ -611,7 +611,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                patientLongitude: widget.longitude,
+                // 1. BEACON / STATUS VISUAL
                 Center(
                   child: Stack(
                     alignment: Alignment.center,
@@ -675,7 +675,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                 ),
                 const SizedBox(height: 14),
 
-                patientLongitude: widget.longitude,
+                // Headline & Description (theme-aware, crystal clear!)
                 Text(
                   _headlineText,
                   textAlign: TextAlign.center,
@@ -698,7 +698,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                 ),
                 const SizedBox(height: 18),
 
-                patientLongitude: widget.longitude,
+                // TERMINAL BANNER (If completed or cancelled)
                 if (isTerminal) ...[
                   Container(
                     padding: const EdgeInsets.all(16),
@@ -754,7 +754,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                     ),
                   ),
                 ] else ...[
-                  patientLongitude: widget.longitude,
+                  // 2. LIVE INTERACTIVE MULTI-PHASE MILESTONE STEPPER
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                     decoration: BoxDecoration(
@@ -898,7 +898,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                   ),
                   const SizedBox(height: 14),
 
-                  patientLongitude: widget.longitude,
+                  // 3. RESPONDING AMBULANCE DRIVER CARD
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -1029,7 +1029,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                   ),
                   const SizedBox(height: 14),
 
-                  patientLongitude: widget.longitude,
+                  // 4. RECEIVING HOSPITAL ER CARD
                   Container(
                     padding: const EdgeInsets.all(14),
                     decoration: BoxDecoration(
@@ -1092,7 +1092,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                   ),
                   const SizedBox(height: 14),
 
-                  patientLongitude: widget.longitude,
+                  // 5. QUICK FIRST AID CARD (Only shown when waiting for ambulance!)
                   if (!_isCompleted && !_isCancelled)
                   Container(
                     padding: const EdgeInsets.all(14),
@@ -1156,7 +1156,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                   ),
                   const SizedBox(height: 16),
 
-                  patientLongitude: widget.longitude,
+                  // 6. CANCEL BUTTON
                   if (_canClientCancel)
                     SizedBox(
                       width: double.infinity,
