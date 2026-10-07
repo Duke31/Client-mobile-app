@@ -83,7 +83,10 @@ class _HomeScreenState extends State<HomeScreen> {
           active['id'].toString(),
         );
         if (detail != null) {
-          active = {...active, ...detail};
+          active = <String, dynamic>{
+            ...Map<String, dynamic>.from(active!),
+            ...Map<String, dynamic>.from(detail),
+          };
         }
       }
 
@@ -115,7 +118,12 @@ class _HomeScreenState extends State<HomeScreen> {
             _supabase,
             active['id'].toString(),
           );
-          if (detail != null) active = {...active, ...detail};
+          if (detail != null) {
+            active = <String, dynamic>{
+              ...Map<String, dynamic>.from(active!),
+              ...Map<String, dynamic>.from(detail),
+            };
+          }
         }
         if (mounted) setState(() => _activeEmergency = active);
       } catch (e2) {
