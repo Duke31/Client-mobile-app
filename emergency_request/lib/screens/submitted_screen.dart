@@ -44,6 +44,8 @@ class _SubmittedScreenState extends State<SubmittedScreen>
   String? _driverPhone;
   String? _vehicleLabel;
   String _actorRole = 'client';
+  double? _patientLat;
+  double? _patientLng;
 
   Timer? _pollTimer;
   StreamSubscription<List<Map<String, dynamic>>>? _realtimeSub;
@@ -137,6 +139,8 @@ class _SubmittedScreenState extends State<SubmittedScreen>
       CurvedAnimation(parent: _radarController, curve: Curves.easeOutCubic),
     );
 
+    _patientLat = widget.latitude;
+    _patientLng = widget.longitude;
     _fetchUserRole();
 
     if (_requestId != null && _requestId!.isNotEmpty) {
@@ -251,6 +255,13 @@ class _SubmittedScreenState extends State<SubmittedScreen>
     final newStatus = req['status']?.toString();
     if (newStatus != null && newStatus != _currentStatus) {
       _handleStatusChange(newStatus);
+    }
+
+    final plat = (req['patient_lat'] as num?)?.toDouble();
+    final plng = (req['patient_lng'] as num?)?.toDouble();
+    if (plat != null && plng != null && (plat != 0.0 || plng != 0.0)) {
+      _patientLat = plat;
+      _patientLng = plng;
     }
 
     String? hName = _hospitalName;
@@ -463,12 +474,15 @@ class _SubmittedScreenState extends State<SubmittedScreen>
     final id = _requestId;
     if (id == null) return;
     HapticFeedback.selectionClick();
+    final lat = _patientLat ?? widget.latitude;
+    final lng = _patientLng ?? widget.longitude;
     Navigator.of(context).push(
       MaterialPageRoute<void>(
         builder: (_) => LiveAmbulanceTrackingScreen(
           requestId: id,
-          patientLocation: (widget.latitude != null && widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : const LatLng(0, 0),
-          
+          patientLocation: (lat != null && lng != null)
+              ? LatLng(lat, lng)
+              : const LatLng(0, 0),
           patientAddress: widget.address ?? widget.patientAddress ?? 'Scene Location',
         ),
       ),
@@ -1283,5 +1297,6 @@ class _SubmittedScreenState extends State<SubmittedScreen>
     );
   }
 }
+
 
 
