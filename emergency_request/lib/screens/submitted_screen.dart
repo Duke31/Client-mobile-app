@@ -1,4 +1,4 @@
-?import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -414,8 +414,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
       MaterialPageRoute<void>(
         builder: (_) => LiveAmbulanceTrackingScreen(
           requestId: id,
-          patientLatitude: widget.latitude,
-          patientLongitude: widget.longitude,
+          patientLocation: (widget.latitude != null && widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : LatLng(0, 0),
           
           patientAddress: widget.address ?? widget.patientAddress ?? 'Scene Location',
         ),
@@ -1147,7 +1146,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                         const Divider(height: 16, thickness: 0.7),
                         _buildAidTip(
                           icon: Icons.warning_rounded,
-                          title: 'Crash / Spine Injury — Do Not Move',
+                          title: 'Crash / Spine Injury Â— Do Not Move',
                           body: 'Do NOT move or drag an accident patient unless immediate fire or explosion hazard exists.',
                           textPrimary: textPrimary,
                           textMuted: textMuted,
