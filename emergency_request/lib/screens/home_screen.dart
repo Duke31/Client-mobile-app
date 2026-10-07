@@ -61,7 +61,7 @@ class _HomeScreenState extends State<HomeScreen> {
           .select(
             'id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority, hospital:hospitals(name), driver:drivers(display_name, full_name, vehicle_label)',
           )
-          .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+          .eq('client_user_id', uid)
           .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
           .order('created_at', ascending: false)
           .limit(1)
@@ -88,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .select(
               'id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority',
             )
-            .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+            .eq('client_user_id', uid)
             .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
             .order('created_at', ascending: false)
             .limit(1)
