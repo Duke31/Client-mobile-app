@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -251,8 +251,8 @@ class _LiveAmbulanceTrackingScreenState
           if (lat != null && lng != null) {
             _applyNewDriverPosition(
               newPos: LatLng(lat, lng),
-              heading: (d['heading'] as num?)?.toDouble(),
-              speedMps: (d['speed'] as num?)?.toDouble(),
+              heading: (d['heading'] as num?)?.toDouble() ?? 0.0,
+              speedMps: (d['speed'] as num?)?.toDouble() ?? 0.0,
               driverName: name,
               vehicleLabel: vehicle,
             );
@@ -494,8 +494,8 @@ class _LiveAmbulanceTrackingScreenState
   // 4. Smooth Animation Engine
   void _applyNewDriverPosition({
     required LatLng newPos,
-    required double heading,
-    required double speedMps,
+    double heading = 0.0,
+    double speedMps = 0.0,
     String? driverName,
     String? vehicleLabel,
   }) {
@@ -910,6 +910,8 @@ class _LiveAmbulanceTrackingScreenState
     );
   }
 }
+
+
 
 
 
