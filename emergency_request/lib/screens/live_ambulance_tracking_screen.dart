@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -50,11 +50,18 @@ class _LiveAmbulanceTrackingScreenState
   LatLng? _dbPatientLocation;
 
   LatLng get _effectivePatientLocation {
-    if (_dbPatientLocation != null) return _dbPatientLocation!;
+    if (_dbPatientLocation != null &&
+        (_dbPatientLocation!.latitude != 0.0 || _dbPatientLocation!.longitude != 0.0)) {
+      return _dbPatientLocation!;
+    }
     if (widget.patientLocation.latitude != 0.0 || widget.patientLocation.longitude != 0.0) {
       return widget.patientLocation;
     }
-    return _targetPos ?? const LatLng(8.1333, 4.2500);
+    if (_targetPos != null &&
+        (_targetPos!.latitude != 0.0 || _targetPos!.longitude != 0.0)) {
+      return _targetPos!;
+    }
+    return const LatLng(7.4434, 4.0051);
   }
   double _vehicleHeading = 0.0;
 
@@ -232,6 +239,17 @@ class _LiveAmbulanceTrackingScreenState
     if (reqKey.isNotEmpty) {
       final detail = await ClientRequestDetail.fetch(_supabase, reqKey);
       if (detail != null) {
+        final plat = (detail['patient_lat'] as num?)?.toDouble();
+        final plng = (detail['patient_lng'] as num?)?.toDouble();
+        if (plat != null && plng != null && (plat != 0.0 || plng != 0.0)) {
+          if (_dbPatientLocation == null ||
+              _dbPatientLocation!.latitude != plat ||
+              _dbPatientLocation!.longitude != plng) {
+            if (mounted) {
+              setState(() => _dbPatientLocation = LatLng(plat, plng));
+            }
+          }
+        }
         final d = detail['driver'];
         if (d is Map) {
           final lat = (d['current_lat'] as num?)?.toDouble();
@@ -251,8 +269,8 @@ class _LiveAmbulanceTrackingScreenState
           if (lat != null && lng != null) {
             _applyNewDriverPosition(
               newPos: LatLng(lat, lng),
-              heading: (d['heading'] as num?)?.toDouble() ?? 0.0,
-              speedMps: (d['speed'] as num?)?.toDouble() ?? 0.0,
+              heading: (d['heading'] as num?)?.toDouble(),
+              speedMps: (d['speed'] as num?)?.toDouble(),
               driverName: name,
               vehicleLabel: vehicle,
             );
@@ -554,7 +572,15 @@ class _LiveAmbulanceTrackingScreenState
 
   void _fitMapBounds(LatLng p1, LatLng p2) {
     try {
-      final bounds = LatLngBounds.fromPoints([p1, p2]);
+      final latDiff = (p1.latitude - p2.latitude).abs();
+      final lngDiff = (p1.longitude - p2.longitude).abs();
+      LatLng ptA = p1;
+      LatLng ptB = p2;
+      if (latDiff < 0.001 && lngDiff < 0.001) {
+        ptA = LatLng(p1.latitude - 0.002, p1.longitude - 0.002);
+        ptB = LatLng(p2.latitude + 0.002, p2.longitude + 0.002);
+      }
+      final bounds = LatLngBounds.fromPoints([ptA, ptB]);
       _mapController.fitCamera(
         CameraFit.bounds(
           bounds: bounds,
@@ -910,7 +936,6 @@ class _LiveAmbulanceTrackingScreenState
     );
   }
 }
-
 
 
 
