@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -211,86 +211,141 @@ class _SubmittedScreenState extends State<SubmittedScreen>
   }
 
   Future<void> _refreshStatus(String reqId) async {
+    if (reqId.isEmpty) return;
+    Map<String, dynamic>? req;
+
     try {
-      final req = await _supabase
+      req = await _supabase
           .from('emergency_requests')
           .select('*, hospital:hospitals(*), driver:drivers(*)')
           .eq('id', reqId)
           .maybeSingle();
-
-      if (req == null || !mounted) return;
-
-      final newStatus = req['status']?.toString();
-      if (newStatus != null && newStatus != _currentStatus) {
-        _handleStatusChange(newStatus);
-      }
-
-      String? hName = _hospitalName;
-      String? hAddr = _hospitalAddress;
-      String? hPhone = _hospitalPhone;
-      String? dName = _driverName;
-      String? vLabel = _vehicleLabel;
-      String? dPhone = _driverPhone;
-
-      if (req['hospital'] is Map) {
-        final h = req['hospital'] as Map;
-        hName = h['name']?.toString() ?? h['hospital_name']?.toString() ?? hName;
-        hAddr = h['address']?.toString() ?? h['location']?.toString() ?? hAddr;
-        hPhone = h['intake_phone']?.toString() ??
-            h['phone']?.toString() ??
-            h['emergency_phone']?.toString() ??
-            hPhone;
-      } else if (req['hospital_id'] != null) {
-        try {
-          final hRow = await _supabase
-              .from('hospitals')
-              .select('*')
-              .eq('id', req['hospital_id'])
-              .maybeSingle();
-          if (hRow != null) {
-            hName = hRow['name']?.toString() ?? hRow['hospital_name']?.toString() ?? hName;
-            hAddr = hRow['address']?.toString() ?? hRow['location']?.toString() ?? hAddr;
-            hPhone = hRow['intake_phone']?.toString() ??
-                hRow['phone']?.toString() ??
-                hRow['emergency_phone']?.toString() ??
-                hPhone;
-          }
-        } catch (_) {}
-      }
-
-      if (req['driver'] is Map) {
-        final d = req['driver'] as Map;
-        dName = d['display_name']?.toString() ?? d['full_name']?.toString() ?? dName;
-        vLabel = d['vehicle_label']?.toString() ?? d['vehicle_plate']?.toString() ?? vLabel;
-        dPhone = d['phone']?.toString() ?? d['phone_number']?.toString() ?? dPhone;
-      } else if (req['driver_id'] != null) {
-        try {
-          final dRow = await _supabase
-              .from('drivers')
-              .select('*')
-              .eq('id', req['driver_id'])
-              .maybeSingle();
-          if (dRow != null) {
-            dName = dRow['display_name']?.toString() ?? dRow['full_name']?.toString() ?? dName;
-            vLabel = dRow['vehicle_label']?.toString() ?? dRow['vehicle_plate']?.toString() ?? vLabel;
-            dPhone = dRow['phone']?.toString() ?? dRow['phone_number']?.toString() ?? dPhone;
-          }
-        } catch (_) {}
-      }
-
-      if (mounted) {
-        setState(() {
-          _hospitalName = hName;
-          _hospitalAddress = hAddr;
-          _hospitalPhone = hPhone;
-          _driverName = dName;
-          _vehicleLabel = vLabel;
-          _driverPhone = dPhone;
-        });
-      }
     } catch (e) {
-      debugPrint('Status poll error: $e');
+      debugPrint('Submitted rich select failed: $e');
     }
+
+    if (req == null) {
+      try {
+        req = await _supabase
+            .from('emergency_requests')
+            .select(
+              'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
+              'hospital_id, driver_id, notes, priority, created_at, contact_phone',
+            )
+            .eq('id', reqId)
+            .maybeSingle();
+      } catch (e) {
+        debugPrint('Submitted plain select failed: $e');
+        return;
+      }
+    }
+
+    if (req == null || !mounted) return;
+
+    final newStatus = req['status']?.toString();
+    if (newStatus != null && newStatus != _currentStatus) {
+      _handleStatusChange(newStatus);
+    }
+
+    String? hName = _hospitalName;
+    String? hAddr = _hospitalAddress;
+    String? hPhone = _hospitalPhone;
+    String? dName = _driverName;
+    String? vLabel = _vehicleLabel;
+    String? dPhone = _driverPhone;
+
+    final hospital = req['hospital'];
+    if (hospital is Map) {
+      hName = hospital['name']?.toString() ??
+          hospital['hospital_name']?.toString() ??
+          hName;
+      hAddr = hospital['address']?.toString() ??
+          hospital['location']?.toString() ??
+          hAddr;
+      hPhone = hospital['intake_phone']?.toString() ??
+          hospital['phone']?.toString() ??
+          hospital['emergency_phone']?.toString() ??
+          hPhone;
+    }
+
+    final driver = req['driver'];
+    if (driver is Map) {
+      dName = driver['display_name']?.toString() ??
+          driver['full_name']?.toString() ??
+          dName;
+      vLabel = driver['vehicle_label']?.toString() ??
+          driver['vehicle_plate']?.toString() ??
+          vLabel;
+      dPhone = driver['phone']?.toString() ??
+          driver['phone_number']?.toString() ??
+          dPhone;
+    }
+
+    final hospitalId = req['hospital_id']?.toString();
+    if (hospitalId != null &&
+        hospitalId.isNotEmpty &&
+        (hName == null || hName.isEmpty || hPhone == null || hPhone.isEmpty)) {
+      try {
+        final hRow = await _supabase
+            .from('hospitals')
+            .select('name, address, intake_phone, phone')
+            .eq('id', hospitalId)
+            .maybeSingle();
+        if (hRow != null) {
+          hName = hRow['name']?.toString() ?? hName;
+          hAddr = hRow['address']?.toString() ?? hAddr;
+          hPhone = hRow['intake_phone']?.toString() ??
+              hRow['phone']?.toString() ??
+              hPhone;
+        }
+      } catch (e) {
+        debugPrint('Hospital secondary fetch: $e');
+      }
+    }
+
+    final driverId = req['driver_id']?.toString();
+    if (driverId != null &&
+        driverId.isNotEmpty &&
+        (dName == null ||
+            dName.isEmpty ||
+            dPhone == null ||
+            dPhone.isEmpty ||
+            vLabel == null ||
+            vLabel.isEmpty)) {
+      try {
+        final dRow = await _supabase
+            .from('drivers')
+            .select(
+              'display_name, full_name, vehicle_label, phone, phone_number',
+            )
+            .eq('id', driverId)
+            .maybeSingle();
+        if (dRow != null) {
+          dName = dRow['display_name']?.toString() ??
+              dRow['full_name']?.toString() ??
+              dName;
+          vLabel = dRow['vehicle_label']?.toString() ?? vLabel;
+          dPhone = dRow['phone']?.toString() ??
+              dRow['phone_number']?.toString() ??
+              dPhone;
+        }
+      } catch (e) {
+        debugPrint('Driver secondary fetch: $e');
+      }
+    }
+
+    if (!mounted) return;
+    setState(() {
+      _hospitalName = hName;
+      _hospitalAddress = hAddr;
+      _hospitalPhone = hPhone;
+      _driverName = dName;
+      _vehicleLabel = vLabel;
+      _driverPhone = dPhone;
+      if (newStatus != null) {
+        _currentStatus = newStatus;
+      }
+    });
   }
 
   Future<void> _fetchActiveRequestId() async {
@@ -298,20 +353,69 @@ class _SubmittedScreenState extends State<SubmittedScreen>
       final uid = _supabase.auth.currentUser?.id;
       if (uid == null) return;
 
-      final res = await _supabase
-          .from('emergency_requests')
-          .select('id, status')
-          .eq('client_user_id', uid)
-          .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
-          .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+      Map<String, dynamic>? res;
+      try {
+        res = await _supabase
+            .from('emergency_requests')
+            .select('id, status')
+            .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+            .order('created_at', ascending: false)
+            .limit(15)
+            .maybeSingle();
+      } catch (_) {
+        res = null;
+      }
+
+      // Prefer non-terminal among recent rows
+      if (res == null) {
+        try {
+          final list = await _supabase
+              .from('emergency_requests')
+              .select('id, status')
+              .eq('client_user_id', uid)
+              .order('created_at', ascending: false)
+              .limit(15);
+          for (final row in List<Map<String, dynamic>>.from(list as List)) {
+            final st = row['status']?.toString() ?? '';
+            if (!st.toLowerCase().contains('completed') &&
+                !st.toLowerCase().contains('cancel')) {
+              res = row;
+              break;
+            }
+          }
+        } catch (e) {
+          debugPrint('fetchActiveRequestId fallback: $e');
+        }
+      } else {
+        final st = res['status']?.toString() ?? '';
+        if (st.toLowerCase().contains('completed') ||
+            st.toLowerCase().contains('cancel')) {
+          // maybeSingle got newest which is terminal — scan list
+          try {
+            final list = await _supabase
+                .from('emergency_requests')
+                .select('id, status')
+                .eq('client_user_id', uid)
+                .order('created_at', ascending: false)
+                .limit(15);
+            res = null;
+            for (final row in List<Map<String, dynamic>>.from(list as List)) {
+              final s = row['status']?.toString() ?? '';
+              if (!s.toLowerCase().contains('completed') &&
+                  !s.toLowerCase().contains('cancel')) {
+                res = row;
+                break;
+              }
+            }
+          } catch (_) {}
+        }
+      }
 
       if (res != null && mounted) {
         final id = res['id']?.toString();
         setState(() {
           _requestId = id;
-          if (res['status'] != null) {
+          if (res!['status'] != null) {
             _currentStatus = res['status'].toString();
           }
         });
@@ -319,7 +423,9 @@ class _SubmittedScreenState extends State<SubmittedScreen>
           _startStatusMonitoring(id);
         }
       }
-    } catch (_) {}
+    } catch (e) {
+      debugPrint('fetchActiveRequestId error: $e');
+    }
   }
 
   Future<void> _confirmAndCancelRequest() async {
