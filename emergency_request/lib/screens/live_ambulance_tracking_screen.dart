@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
@@ -27,8 +27,6 @@ class LiveAmbulanceTrackingScreen extends StatefulWidget {
 }
 
 class _LiveAmbulanceTrackingScreenState
-  LatLng get _effectivePatientLocation => _dynamicPatientLocation ?? ((_effectivePatientLocation.latitude != 0 || _effectivePatientLocation.longitude != 0) ? _effectivePatientLocation : (_targetPos ?? const LatLng(8.1333, 4.2500)));
-
     extends State<LiveAmbulanceTrackingScreen>
     with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
@@ -48,7 +46,15 @@ class _LiveAmbulanceTrackingScreenState
 
   LatLng? _previousPos;
   LatLng? _targetPos;
-  LatLng? _dynamicPatientLocation;
+  LatLng? _dbPatientLocation;
+
+  LatLng get _effectivePatientLocation {
+    if (_dbPatientLocation != null) return _dbPatientLocation!;
+    if (widget.patientLocation.latitude != 0.0 || widget.patientLocation.longitude != 0.0) {
+      return widget.patientLocation;
+    }
+    return _targetPos ?? const LatLng(8.1333, 4.2500);
+  }
   double _vehicleHeading = 0.0;
 
   late AnimationController _animController;
@@ -113,7 +119,7 @@ class _LiveAmbulanceTrackingScreenState
       if (_resolvedRequestId != null && _resolvedRequestId!.isNotEmpty) {
         req = await _supabase
             .from('emergency_requests')
-            .select('id, status, driver_id, patient_lat, patient_lng, patient_address')
+            .select('id, status, driver_id, patient_lat, patient_lng')
             .eq('id', _resolvedRequestId!)
             .maybeSingle();
       }
@@ -124,7 +130,7 @@ class _LiveAmbulanceTrackingScreenState
           (_resolvedRequestId == null || _resolvedRequestId!.isEmpty)) {
         final activeList = await _supabase
             .from('emergency_requests')
-            .select('id, status, driver_id, patient_lat, patient_lng, patient_address')
+            .select('id, status, driver_id, patient_lat, patient_lng')
             .not('driver_id', 'is', null)
             .order('created_at', ascending: false)
             .limit(1);
@@ -136,10 +142,10 @@ class _LiveAmbulanceTrackingScreenState
       }
 
       if (req != null && mounted) {
-                final plat = (req['patient_lat'] as num?)?.toDouble();
+        final plat = (req['patient_lat'] as num?)?.toDouble();
         final plng = (req['patient_lng'] as num?)?.toDouble();
-        if (plat != null && plng != null && (plat != 0 || plng != 0)) {
-          _dynamicPatientLocation = LatLng(plat, plng);
+        if (plat != null && plng != null && (plat != 0.0 || plng != 0.0)) {
+          _dbPatientLocation = LatLng(plat, plng);
         }
         final status = req['status']?.toString() ?? "Driver Assigned";
         final driverId = req['driver_id']?.toString();
@@ -861,3 +867,6 @@ class _LiveAmbulanceTrackingScreenState
     );
   }
 }
+
+
+
