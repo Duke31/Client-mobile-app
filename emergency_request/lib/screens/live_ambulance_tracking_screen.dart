@@ -45,7 +45,6 @@ class _LiveAmbulanceTrackingScreenState
   double _currentSpeedKmH = 0.0;
   String _missionStatus = "Connecting…";
 
-  LatLng? _previousPos;
   LatLng? _targetPos;
   LatLng? _dbPatientLocation;
 
@@ -145,7 +144,7 @@ class _LiveAmbulanceTrackingScreenState
 
         if (activeList.isNotEmpty) {
           req = activeList.first;
-          _resolvedRequestId = req?['id']?.toString();
+          _resolvedRequestId = req['id']?.toString();
         }
       }
 
@@ -554,7 +553,7 @@ class _LiveAmbulanceTrackingScreenState
     _animController.reset();
     _animController.forward();
 
-    _previousPos = startPos;
+    
     _vehicleHeading = heading % 360;
 
     if (!_hasFittedBounds) {
