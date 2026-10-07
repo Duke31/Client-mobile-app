@@ -14,13 +14,33 @@ jobs:
 
       - name: Unpack Project Zip
         run: |
-          if ls *.zip >/dev/null 2>&1; then unzip -o *.zip; fi
+          if ls *.zip > /dev/null 2>&1; then unzip -o *.zip; fi
           if [ -d emergency_request ]; then cp -R emergency_request/. .; fi
 
       - name: Fix submitted screen
         run: |
+          # Remove stale interactive:false lines (original fix)
           sed -i '/interactive: false,/d' emergency_request/lib/screens/submitted_screen.dart || true
           sed -i '/interactive: false,/d' lib/screens/submitted_screen.dart || true
+
+          # Fix 1: Replace old patientLatitude/patientLongitude named params with patientLocation: LatLng(...)
+          # Targets the LiveAmbulanceTrackingScreen(...) call block in submitted_screen.dart
+          for f in emergency_request/lib/screens/submitted_screen.dart lib/screens/submitted_screen.dart; do
+            [ -f "$f" ] || continue
+            # Remove patientLatitude line
+            sed -i '/patientLatitude:/d' "$f"
+            # Remove patientLongitude line
+            sed -i '/patientLongitude:/d' "$f"
+            # If patientLocation is missing, insert it after the requestId: line inside the tracking screen call
+            if grep -q 'patientLocation:' "$f"; then
+              echo "patientLocation already present in $f"
+            else
+              sed -i '/requestId: id,/a\          patientLocation: (widget.latitude != null \&\& widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : const LatLng(0, 0),' "$f"
+            fi
+            # Fix 2: Replace bare $vehicleLabel (no underscore) with $_vehicleLabel
+            sed -i 's/\$vehicleLabel)/\$_vehicleLabel)/g' "$f"
+            sed -i "s/\$vehicleLabel'/\$_vehicleLabel'/g" "$f"
+          done
 
       - name: Set up Java
         uses: actions/setup-java@v4
