@@ -1,0 +1,127 @@
+name: Build Android APK
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Fix submitted screen
+        run: |
+          # Remove stale interactive:false lines (original fix)
+          sed -i '/interactive: false,/d' emergency_request/lib/screens/submitted_screen.dart || true
+          sed -i '/interactive: false,/d' lib/screens/submitted_screen.dart || true
+
+          # Fix 1: Replace old patientLatitude/patientLongitude named params with patientLocation: LatLng(...)
+          # Targets the LiveAmbulanceTrackingScreen(...) call block in submitted_screen.dart
+          for f in emergency_request/lib/screens/submitted_screen.dart lib/screens/submitted_screen.dart; do
+            [ -f "$f" ] || continue
+            # Remove patientLatitude line
+            sed -i '/patientLatitude:/d' "$f"
+            # Remove patientLongitude line
+            sed -i '/patientLongitude:/d' "$f"
+            # If patientLocation is missing, insert it after the requestId: line inside the tracking screen call
+            if grep -q 'patientLocation:' "$f"; then
+              echo "patientLocation already present in $f"
+            else
+              sed -i '/requestId: id,/a\          patientLocation: (widget.latitude != null \&\& widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : const LatLng(0, 0),' "$f"
+            fi
+            # Fix 2: Replace bare $vehicleLabel (no underscore) with $_vehicleLabel
+            sed -i 's/\$vehicleLabel)/\$_vehicleLabel)/g' "$f"
+            sed -i "s/\$vehicleLabel'/\$_vehicleLabel'/g" "$f"
+          done
+
+      - name: Set up Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Inject Environment Secrets
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
+          MAPBOX_ACCESS_TOKEN: ${{ secrets.MAPBOX_ACCESS_TOKEN }}
+        run: |
+          jq -n \
+            --arg url "$SUPABASE_URL" \
+            --arg key "$SUPABASE_ANON_KEY" \
+            --arg token "$MAPBOX_ACCESS_TOKEN" \
+            '{SUPABASE_URL:$url,SUPABASE_ANON_KEY:$key,MAPBOX_ACCESS_TOKEN:$token}' \
+            > config.json
+
+      - name: Install Dependencies
+        run: flutter pub get
+
+      - name: Ensure Android platform
+        run: flutter create --platforms=android --project-name emergency_request --org com.example .
+
+      - name: Apply Solace Launcher Branding
+        run: |
+          if [ -d assets/launcher ]; then
+            cp -R assets/launcher/* android/app/src/main/res/ || true
+          fi
+          if [ -d emergency_request/assets ]; then
+            mkdir -p assets
+            cp -R emergency_request/assets/* assets/ || true
+          fi
+
+      - name: Add location permissions and intent queries
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          text = p.read_text()
+          if "ACCESS_FINE_LOCATION" not in text:
+              insert = (
+                  "\n    <uses-permission android:name=\"android.permission.INTERNET\" />"
+                  "\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />"
+                  "\n    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />"
+                  "\n    <uses-permission android:name=\"android.permission.CALL_PHONE\" />"
+              )
+              i = text.find(">")
+              text = text[: i + 1] + insert + text[i + 1 :]
+          if "<queries>" not in text:
+              q = (
+                  "\n    <queries>"
+                  "\n        <intent>"
+                  "\n            <action android:name=\"android.intent.action.DIAL\" />"
+                  "\n            <data android:scheme=\"tel\" />"
+                  "\n        </intent>"
+                  "\n        <intent>"
+                  "\n            <action android:name=\"android.intent.action.SENDTO\" />"
+                  "\n            <data android:scheme=\"sms\" />"
+                  "\n        </intent>"
+                  "\n        <intent>"
+                  "\n            <action android:name=\"android.intent.action.VIEW\" />"
+                  "\n            <data android:scheme=\"https\" />"
+                  "\n        </intent>"
+                  "\n    </queries>"
+              )
+              end_tag = text.rfind("</manifest>")
+              if end_tag != -1:
+                  text = text[:end_tag] + q + "\n" + text[end_tag:]
+          p.write_text(text)
+          PY
+
+      - name: Build Release APK
+        run: flutter build apk --release --dart-define-from-file=config.json
+
+      - name: Upload APK Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: solace-client-release
+          path: build/app/outputs/flutter-apk/app-release.apk
+          retention-days: 14
