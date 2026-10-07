@@ -238,7 +238,6 @@ class _LiveAmbulanceTrackingScreenState
           final lng = (d['current_lng'] as num?)?.toDouble();
           final name = d['display_name']?.toString();
           final vehicle = d['vehicle_label']?.toString();
-          final phone = d['phone']?.toString();
           final did = detail['driver_id']?.toString() ?? d['id']?.toString();
           if (did != null && did.isNotEmpty) _driverId = did;
           if (name != null || vehicle != null) {
