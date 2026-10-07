@@ -17,18 +17,16 @@ class LocationFix {
 }
 
 /// High-accuracy GPS for emergency dispatch.
-/// Prefer satellite / navigation grade; do not silently fall back to coarse cell.
 class LocationService {
   const LocationService();
 
-  LocationSettings _navSettings({Duration? timeLimit}) {
+  LocationSettings _streamSettings() {
     if (defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
         accuracy: LocationAccuracy.bestForNavigation,
-        forceLocationManager: true, // hardware GPS, not network snap
+        forceLocationManager: true,
         intervalDuration: const Duration(milliseconds: 1000),
         distanceFilter: 0,
-        timeLimit: timeLimit,
       );
     }
     if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -36,17 +34,35 @@ class LocationService {
         accuracy: LocationAccuracy.bestForNavigation,
         activityType: ActivityType.otherNavigation,
         pauseLocationUpdatesAutomatically: false,
-        timeLimit: timeLimit,
       );
     }
-    return LocationSettings(
+    return const LocationSettings(
       accuracy: LocationAccuracy.bestForNavigation,
-      timeLimit: timeLimit,
     );
   }
 
-  /// Fast UI hint only (map may paint). Never used as final dispatch coords alone
-  /// if [current] can still improve.
+  LocationSettings _oneshotSettings() {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        forceLocationManager: true,
+        timeLimit: const Duration(seconds: 12),
+      );
+    }
+    if (defaultTargetPlatform == TargetPlatform.iOS) {
+      return AppleSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        activityType: ActivityType.otherNavigation,
+        pauseLocationUpdatesAutomatically: false,
+        timeLimit: const Duration(seconds: 12),
+      );
+    }
+    return const LocationSettings(
+      accuracy: LocationAccuracy.bestForNavigation,
+      timeLimit: Duration(seconds: 12),
+    );
+  }
+
   Future<LocationFix?> quickEstimate() async {
     try {
       final last = await Geolocator.getLastKnownPosition();
@@ -87,25 +103,19 @@ class LocationService {
     final completer = Completer<Position?>();
 
     final sub = Geolocator.getPositionStream(
-      locationSettings: _navSettings(),
+      locationSettings: _streamSettings(),
     ).listen((pos) {
       if (pos.accuracy <= 0) return;
-      debugPrint(
-        'GPS sample ±${pos.accuracy.toStringAsFixed(1)}m '
-        '${pos.latitude.toStringAsFixed(5)},${pos.longitude.toStringAsFixed(5)}',
-      );
       if (best == null || pos.accuracy < best!.accuracy) {
         best = pos;
       }
-      // Building-entrance grade — accept early (stricter than 30m)
       if (pos.accuracy <= 15.0 && !completer.isCompleted) {
         completer.complete(pos);
       }
-    }, onError: (e) {
+    }, onError: (Object e) {
       debugPrint('GPS stream error: $e');
     });
 
-    // Allow satellite lock time (was shortened to 4s and hurt accuracy)
     Timer(const Duration(seconds: 12), () {
       if (!completer.isCompleted) completer.complete(best);
     });
@@ -121,10 +131,9 @@ class LocationService {
       );
     }
 
-    // One-shot still at navigation accuracy (not medium/high-only)
     try {
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: _navSettings(timeLimit: const Duration(seconds: 12)),
+        locationSettings: _oneshotSettings(),
       );
       return LocationFix(
         latitude: pos.latitude,
@@ -132,7 +141,7 @@ class LocationService {
         accuracyMeters: pos.accuracy,
       );
     } catch (e) {
-      debugPrint('getCurrentPosition nav failed: $e');
+      debugPrint('getCurrentPosition failed: $e');
     }
 
     if (streamPos != null) {
@@ -163,6 +172,7 @@ class LocationService {
 class LocationException implements Exception {
   const LocationException(this.message);
   final String message;
+
   @override
   String toString() => message;
 }
