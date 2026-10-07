@@ -2,6 +2,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/client_request_detail.dart';
 import '../theme/app_theme.dart';
 import 'request_screen.dart';
 import 'submitted_screen.dart';
@@ -55,54 +56,70 @@ class _HomeScreenState extends State<HomeScreen> {
     if (uid == null || !mounted) return;
 
     try {
-      // Look for any request that is currently active for this user
-      final res = await _supabase
+      final list = await _supabase
           .from('emergency_requests')
           .select(
-            'id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority, hospital:hospitals(name), driver:drivers(display_name, full_name, vehicle_label)',
+            'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
+            'created_at, client_user_id, hospital_id, driver_id',
           )
-          .eq('client_user_id', uid)
-          .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
+          .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
           .order('created_at', ascending: false)
-          .limit(1)
-          .maybeSingle();
+          .limit(20);
 
-      if (mounted) {
-        setState(() {
-          if (res != null) {
-            _activeEmergency = res;
-          } else if (_activeEmergency != null &&
-              (_activeEmergency!['status'] == 'Completed' ||
-               _activeEmergency!['status'] == 'Cancelled / failed' ||
-               _activeEmergency!['status'] == 'completed' ||
-               _activeEmergency!['status'] == 'cancelled')) {
-            _activeEmergency = null;
-          }
-        });
-      }
-    } catch (_) {
-      // Resilient fallback query without foreign joins
-      try {
-        final res = await _supabase
-            .from('emergency_requests')
-            .select(
-              'id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority',
-            )
-          .eq('client_user_id', uid)
-            .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
-            .order('created_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
-
-        if (mounted) {
-          setState(() {
-            if (res != null) {
-              _activeEmergency = res;
-            }
-          });
+      Map<String, dynamic>? active;
+      for (final row in List<Map<String, dynamic>>.from(list as List)) {
+        final st = (row['status']?.toString() ?? '').toLowerCase();
+        if (st.contains('completed') || st.contains('cancel') || st.contains('failed')) {
+          continue;
         }
-      } catch (err2) {
-        debugPrint('Active emergency check fallback notice: $err2');
+        active = row;
+        break;
+      }
+
+      // Enrich active with hospital/driver names via RPC
+      if (active != null && active['id'] != null) {
+        final detail = await ClientRequestDetail.fetch(
+          _supabase,
+          active['id'].toString(),
+        );
+        if (detail != null) {
+          active = {...active, ...detail};
+        }
+      }
+
+      if (!mounted) return;
+      setState(() {
+        _activeEmergency = active; // null clears stuck post-cancel SOS
+      });
+    } catch (e) {
+      debugPrint('Active emergency check error: $e');
+      // Fallback without or-filter
+      try {
+        final list = await _supabase
+            .from('emergency_requests')
+            .select('id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, hospital_id, driver_id')
+            .eq('client_user_id', uid)
+            .order('created_at', ascending: false)
+            .limit(20);
+        Map<String, dynamic>? active;
+        for (final row in List<Map<String, dynamic>>.from(list as List)) {
+          final st = (row['status']?.toString() ?? '').toLowerCase();
+          if (st.contains('completed') || st.contains('cancel') || st.contains('failed')) {
+            continue;
+          }
+          active = row;
+          break;
+        }
+        if (active != null && active['id'] != null) {
+          final detail = await ClientRequestDetail.fetch(
+            _supabase,
+            active['id'].toString(),
+          );
+          if (detail != null) active = {...active, ...detail};
+        }
+        if (mounted) setState(() => _activeEmergency = active);
+      } catch (e2) {
+        debugPrint('Active fallback error: $e2');
       }
     }
   }
