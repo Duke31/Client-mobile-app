@@ -414,8 +414,8 @@ class _SubmittedScreenState extends State<SubmittedScreen>
       MaterialPageRoute<void>(
         builder: (_) => LiveAmbulanceTrackingScreen(
           requestId: id,
-          patientLocation: (widget.latitude != null && widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : const LatLng(0, 0),
-          
+          patientLatitude: widget.latitude,
+          patientLongitude: widget.longitude,
           patientAddress: widget.address ?? widget.patientAddress ?? 'Scene Location',
         ),
       ),
