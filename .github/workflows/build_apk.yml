@@ -12,30 +12,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Fix submitted screen
+      - name: Move project to root
         run: |
-          # Remove stale interactive:false lines (original fix)
-          sed -i '/interactive: false,/d' emergency_request/lib/screens/submitted_screen.dart || true
-          sed -i '/interactive: false,/d' lib/screens/submitted_screen.dart || true
-
-          # Fix 1: Replace old patientLatitude/patientLongitude named params with patientLocation: LatLng(...)
-          # Targets the LiveAmbulanceTrackingScreen(...) call block in submitted_screen.dart
-          for f in emergency_request/lib/screens/submitted_screen.dart lib/screens/submitted_screen.dart; do
-            [ -f "$f" ] || continue
-            # Remove patientLatitude line
-            sed -i '/patientLatitude:/d' "$f"
-            # Remove patientLongitude line
-            sed -i '/patientLongitude:/d' "$f"
-            # If patientLocation is missing, insert it after the requestId: line inside the tracking screen call
-            if grep -q 'patientLocation:' "$f"; then
-              echo "patientLocation already present in $f"
-            else
-              sed -i '/requestId: id,/a\          patientLocation: (widget.latitude != null \&\& widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : const LatLng(0, 0),' "$f"
-            fi
-            # Fix 2: Replace bare $vehicleLabel (no underscore) with $_vehicleLabel
-            sed -i 's/\$vehicleLabel)/\$_vehicleLabel)/g' "$f"
-            sed -i "s/\$vehicleLabel'/\$_vehicleLabel'/g" "$f"
-          done
+          # The repo has the Flutter project in the emergency_request/ folder.
+          # We move it to root to act exactly like the old zip extraction did,
+          # so all following steps (flutter pub get, etc) work identically.
+          cp -R emergency_request/* .
+          cp -R emergency_request/.* . 2>/dev/null || true
+          rm -rf emergency_request
 
       - name: Set up Java
         uses: actions/setup-java@v4
