@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -17,13 +18,50 @@ class _HistoryScreenState extends State<HistoryScreen> {
   List<Map<String, dynamic>> _history = [];
   final Map<String, int> _ratedRequests = {};
 
+  // ── Real-time subscription for completed/cancelled cases ─────────────────
+  StreamSubscription<List<Map<String, dynamic>>>? _realtimeSub;
+
+  // Only statuses that belong in History (terminal states)
+  static const List<String> _terminalStatuses = [
+    'Completed',
+    'completed',
+    'Cancelled / failed',
+    'cancelled',
+    'Canceled',
+    'Failed',
+  ];
+
   @override
   void initState() {
     super.initState();
     _fetchHistory();
+    _subscribeRealtime();
+  }
+
+  @override
+  void dispose() {
+    _realtimeSub?.cancel();
+    super.dispose();
+  }
+
+  /// Subscribe to real-time changes on emergency_requests so the list
+  /// updates automatically when a case is resolved/completed.
+  void _subscribeRealtime() {
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return;
+    try {
+      _realtimeSub = _supabase
+          .from('emergency_requests')
+          .stream(primaryKey: ['id'])
+          .listen((_) {
+            // Re-fetch whenever any row changes for this user
+            _fetchHistory();
+          }, onError: (_) {});
+    } catch (_) {}
   }
 
   Future<void> _fetchHistory() async {
+    if (!mounted) return;
     setState(() => _loading = true);
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) {
@@ -32,13 +70,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
 
     try {
-      // 1. Attempt rich query with foreign table joins
+      // ── Fetch ONLY completed/cancelled requests for the History tab ───────
+      // Active/pending requests belong in the Live Tracker tab, not here.
       final res = await _supabase
           .from('emergency_requests')
           .select(
-            'id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority, hospital:hospitals(name, address), driver:drivers(display_name, full_name, vehicle_label, phone, phone_number)',
+            'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
+            'created_at, client_user_id, contact_phone, hospital_id, driver_id, '
+            'notes, priority, '
+            'hospital:hospitals(name, address), '
+            'driver:drivers(display_name, full_name, vehicle_label, phone, phone_number)',
           )
           .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+          // Only terminal statuses belong in history
+          .or(
+            'status.eq.Completed,'
+            'status.eq.completed,'
+            'status.eq.Cancelled / failed,'
+            'status.eq.cancelled,'
+            'status.eq.Canceled,'
+            'status.eq.Failed',
+          )
           .order('created_at', ascending: false)
           .limit(50);
 
@@ -49,14 +101,24 @@ class _HistoryScreenState extends State<HistoryScreen> {
         });
       }
     } catch (e) {
-      // 2. Resilient fallback query without foreign joins
+      // Resilient fallback without foreign joins
       try {
         final res = await _supabase
             .from('emergency_requests')
             .select(
-              'id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority',
+              'id, status, emergency_type, patient_address, patient_lat, '
+              'patient_lng, created_at, client_user_id, contact_phone, '
+              'hospital_id, driver_id, notes, priority',
             )
             .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+            .or(
+              'status.eq.Completed,'
+              'status.eq.completed,'
+              'status.eq.Cancelled / failed,'
+              'status.eq.cancelled,'
+              'status.eq.Canceled,'
+              'status.eq.Failed',
+            )
             .order('created_at', ascending: false)
             .limit(50);
 
@@ -67,10 +129,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
           });
         }
       } catch (e2) {
-        debugPrint('History query fallback error: $e2');
-        if (mounted) {
-          setState(() => _loading = false);
-        }
+        debugPrint('History fallback error: $e2');
+        if (mounted) setState(() => _loading = false);
       }
     }
   }
@@ -92,7 +152,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
             _ratedRequests[reqId] = rating;
           });
 
-          // Save feedback to request notes
           try {
             final oldNotes = req['notes']?.toString() ?? '';
             final feedbackPayload =
@@ -100,16 +159,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
             final newNotes = oldNotes.isNotEmpty
                 ? '$oldNotes\n$feedbackPayload'
                 : feedbackPayload;
-
-            await _supabase.from('emergency_requests').update({
-              'notes': newNotes,
-            }).eq('id', reqId);
+            await _supabase
+                .from('emergency_requests')
+                .update({'notes': newNotes}).eq('id', reqId);
           } catch (_) {}
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text('Thank you! Your feedback helps optimize our emergency dispatch fleet.'),
+                content: Text(
+                    'Thank you! Your feedback helps optimise our emergency dispatch fleet.'),
                 backgroundColor: Color(0xFF00E676),
                 behavior: SnackBarBehavior.floating,
               ),
@@ -141,11 +200,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final bgColor = isDark ? AppTheme.darkBg : AppTheme.lightBg;
-    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
-    final cardBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFCBD5E1);
-    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-    final textMuted = isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
+    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final cardBorder =
+        isDark ? AppTheme.darkCardBorder : AppTheme.lightCardBorder;
+    final textPrimary =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary =
+        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textMuted =
+        isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
+    final primaryColor =
+        isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -167,9 +232,9 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ),
             ),
             Text(
-              'Case Archive & Patient Service Reviews',
+              'Closed Case Archive & Patient Service Reviews',
               style: TextStyle(
-                color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                color: textSecondary,
                 fontSize: 9.5,
                 fontWeight: FontWeight.w500,
               ),
@@ -178,10 +243,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
         ),
         actions: [
           IconButton(
-            icon: Icon(
-              Icons.refresh_rounded,
-              color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
-            ),
+            icon: Icon(Icons.refresh_rounded, color: primaryColor),
             tooltip: 'Refresh History',
             onPressed: _fetchHistory,
           ),
@@ -189,13 +251,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
       ),
       body: _loading
           ? Center(
-              child: CircularProgressIndicator(
-                color: isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary,
-              ),
+              child: CircularProgressIndicator(color: primaryColor),
             )
           : RefreshIndicator(
               onRefresh: _fetchHistory,
-              color: isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary,
+              color: primaryColor,
               backgroundColor: cardColor,
               child: _history.isEmpty
                   ? ListView(
@@ -214,7 +274,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                     decoration: BoxDecoration(
                                       color: cardColor,
                                       shape: BoxShape.circle,
-                                      border: Border.all(color: cardBorder, width: 1.5),
+                                      border: Border.all(
+                                          color: cardBorder, width: 1.5),
                                     ),
                                     child: Icon(
                                       Icons.history_toggle_off_rounded,
@@ -224,7 +285,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   ),
                                   const SizedBox(height: 16),
                                   Text(
-                                    'No Emergency History',
+                                    'No Closed Cases Yet',
                                     style: TextStyle(
                                       color: textPrimary,
                                       fontSize: 17,
@@ -233,7 +294,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Your previous emergency dispatch cases and medical reviews will appear here.',
+                                    'Completed and closed emergency dispatch cases will appear here for your review.',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       color: textMuted,
@@ -244,16 +305,23 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   const SizedBox(height: 24),
                                   FilledButton.icon(
                                     style: FilledButton.styleFrom(
-                                      backgroundColor: const Color(0xFFD32F2F),
+                                      backgroundColor:
+                                          AppTheme.darkAccent,
                                       foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
-                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                                      padding: const EdgeInsets.symmetric(
+                                          horizontal: 22, vertical: 12),
+                                      shape: RoundedRectangleBorder(
+                                          borderRadius:
+                                              BorderRadius.circular(12)),
                                     ),
                                     onPressed: widget.onSwitchToSos,
-                                    icon: const Icon(Icons.emergency_rounded, size: 18),
+                                    icon: const Icon(
+                                        Icons.emergency_rounded,
+                                        size: 18),
                                     label: const Text(
                                       'Go to Emergency SOS',
-                                      style: TextStyle(fontWeight: FontWeight.bold),
+                                      style: TextStyle(
+                                          fontWeight: FontWeight.bold),
                                     ),
                                   ),
                                 ],
@@ -294,25 +362,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
     required Color textMuted,
   }) {
     final reqId = req['id']?.toString() ?? '';
-    final shortId = reqId.length > 8 ? reqId.substring(0, 8).toUpperCase() : reqId;
+    final shortId =
+        reqId.length > 8 ? reqId.substring(0, 8).toUpperCase() : reqId;
     final status = req['status']?.toString() ?? 'Completed';
     final isCompleted = status.toLowerCase().contains('complete');
-    final isCancelled = status.toLowerCase().contains('cancel') || status.toLowerCase().contains('fail');
+    final isCancelled = status.toLowerCase().contains('cancel') ||
+        status.toLowerCase().contains('fail');
     final emergencyType = req['emergency_type']?.toString() ?? 'Emergency';
-    final address = req['patient_address']?.toString() ?? 'GPS Location Verified';
+    final address =
+        req['patient_address']?.toString() ?? 'GPS Location Verified';
     final dateStr = _formatDate(req['created_at']?.toString());
 
-    // Hospital extraction
     String? hospitalName;
     if (req['hospital'] is Map) {
       hospitalName = req['hospital']['name']?.toString();
     }
 
-    // Driver extraction
     String? driverName;
     String? vehicleLabel;
     if (req['driver'] is Map) {
-      driverName = req['driver']['display_name']?.toString() ?? req['driver']['full_name']?.toString();
+      driverName = req['driver']['display_name']?.toString() ??
+          req['driver']['full_name']?.toString();
       vehicleLabel = req['driver']['vehicle_label']?.toString();
     }
 
@@ -325,9 +395,13 @@ class _HistoryScreenState extends State<HistoryScreen> {
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isCompleted
-              ? (isDark ? const Color(0xFF00E676).withValues(alpha: 0.4) : const Color(0xFF86EFAC))
+              ? (isDark
+                  ? const Color(0xFF00E676).withValues(alpha: 0.4)
+                  : const Color(0xFF86EFAC))
               : (isCancelled
-                  ? (isDark ? Colors.red.withValues(alpha: 0.3) : const Color(0xFFFECACA))
+                  ? (isDark
+                      ? Colors.red.withValues(alpha: 0.3)
+                      : const Color(0xFFFECACA))
                   : cardBorder),
           width: 1.0,
         ),
@@ -345,22 +419,28 @@ class _HistoryScreenState extends State<HistoryScreen> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          onTap: () => _openMissionArchiveDetail(req),
+          // Only show review sheet for completed cases
+          onTap: isCompleted
+              ? () => _openMissionArchiveDetail(req)
+              : null,
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // Top row: Type chip, Date, Status Badge
+                // ── Top row: Type chip, Date, Status Badge ────────────────
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFF334B).withValues(alpha: isDark ? 0.15 : 0.1),
+                        color: const Color(0xFFFF334B)
+                            .withValues(alpha: isDark ? 0.15 : 0.1),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: const Color(0xFFFF334B).withValues(alpha: isDark ? 0.4 : 0.3),
+                          color: const Color(0xFFFF334B)
+                              .withValues(alpha: isDark ? 0.4 : 0.3),
                           width: 0.8,
                         ),
                       ),
@@ -387,58 +467,26 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         ),
                       ),
                     ),
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                      decoration: BoxDecoration(
-                        color: isCompleted
-                            ? (isDark ? const Color(0xFF00E676).withValues(alpha: 0.15) : const Color(0xFFDCFCE7))
-                            : (isCancelled
-                                ? (isDark ? Colors.red.withValues(alpha: 0.15) : const Color(0xFFFEE2E2))
-                                : (isDark ? const Color(0xFF00D4FF).withValues(alpha: 0.15) : const Color(0xFFE0F2FE))),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Icon(
-                            isCompleted
-                                ? Icons.check_circle_rounded
-                                : (isCancelled ? Icons.cancel_outlined : Icons.sync_rounded),
-                            size: 12,
-                            color: isCompleted
-                                ? (isDark ? const Color(0xFF00E676) : const Color(0xFF15803D))
-                                : (isCancelled
-                                    ? (isDark ? Colors.redAccent : const Color(0xFF991B1B))
-                                    : (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0369A1))),
-                          ),
-                          const SizedBox(width: 4),
-                          Text(
-                            isCompleted ? 'COMPLETED' : (isCancelled ? 'CANCELLED' : status),
-                            style: TextStyle(
-                              fontSize: 9.5,
-                              fontWeight: FontWeight.w900,
-                              color: isCompleted
-                                  ? (isDark ? const Color(0xFF00E676) : const Color(0xFF15803D))
-                                  : (isCancelled
-                                      ? (isDark ? Colors.redAccent : const Color(0xFF991B1B))
-                                      : (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0369A1))),
-                            ),
-                          ),
-                        ],
-                      ),
+                    _StatusBadge(
+                      isCompleted: isCompleted,
+                      isCancelled: isCancelled,
+                      status: status,
+                      isDark: isDark,
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
 
-                // Location line
+                // ── Location ──────────────────────────────────────────────
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
                       Icons.location_on_rounded,
                       size: 15,
-                      color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                      color: isDark
+                          ? AppTheme.darkPrimary
+                          : AppTheme.lightPrimary,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -458,23 +506,27 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // Assigned Hospital & Driver info
+                // ── Hospital & Driver row ──────────────────────────────────
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF0D2559) : const Color(0xFFF8FAFC),
+                    color: isDark
+                        ? const Color(0xFF0D2559)
+                        : const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: isDark ? const Color(0xFF1E3A8A) : const Color(0xFFE2E8F0),
+                      color: isDark
+                          ? const Color(0xFF1E3A8A)
+                          : const Color(0xFFE2E8F0),
                     ),
                   ),
                   child: Row(
                     children: [
-                      // Hospital
                       Expanded(
                         child: Row(
                           children: [
-                            const Icon(Icons.local_hospital_rounded, size: 14, color: Color(0xFF00ACC1)),
+                            const Icon(Icons.local_hospital_rounded,
+                                size: 14, color: Color(0xFF00ACC1)),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
@@ -494,18 +546,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       Container(
                         height: 16,
                         width: 1,
-                        color: isDark ? Colors.white12 : const Color(0xFFCBD5E1),
-                        margin: const EdgeInsets.symmetric(horizontal: 8),
+                        color: isDark
+                            ? Colors.white12
+                            : const Color(0xFFCBD5E1),
+                        margin:
+                            const EdgeInsets.symmetric(horizontal: 8),
                       ),
-                      // Driver
                       Expanded(
                         child: Row(
                           children: [
-                            const Icon(Icons.directions_car_rounded, size: 14, color: Color(0xFF00E676)),
+                            const Icon(Icons.directions_car_rounded,
+                                size: 14, color: Color(0xFF00E676)),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                driverName ?? (vehicleLabel ?? 'Solace Unit'),
+                                driverName ??
+                                    (vehicleLabel ?? 'Solace Unit'),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -523,7 +579,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // Bottom Action: Rate & Review button or Stars
+                // ── Bottom: Ref ID + Rating (completed only) ──────────────
                 Row(
                   children: [
                     Text(
@@ -536,43 +592,71 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                     ),
                     const Spacer(),
-                    if (currentRating != null) ...[
-                      Row(
-                        children: List.generate(
-                          5,
-                          (i) => Icon(
-                            Icons.star_rounded,
-                            size: 16,
-                            color: i < currentRating ? Colors.amber : (isDark ? Colors.white24 : Colors.grey.shade300),
+                    // Rating UI only for completed cases — never for active/pending
+                    if (isCompleted) ...[
+                      if (currentRating != null) ...[
+                        Row(
+                          children: List.generate(
+                            5,
+                            (i) => Icon(
+                              Icons.star_rounded,
+                              size: 16,
+                              color: i < currentRating
+                                  ? Colors.amber
+                                  : (isDark
+                                      ? Colors.white24
+                                      : Colors.grey.shade300),
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 6),
-                      Text(
-                        'Rated $currentRating★',
-                        style: const TextStyle(
-                          color: Colors.amber,
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
+                        const SizedBox(width: 6),
+                        Text(
+                          'Rated $currentRating★',
+                          style: const TextStyle(
+                            color: Colors.amber,
+                            fontSize: 11,
+                            fontWeight: FontWeight.bold,
+                          ),
                         ),
-                      ),
+                      ] else ...[
+                        OutlinedButton.icon(
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: isDark
+                                ? AppTheme.darkPrimary
+                                : AppTheme.lightPrimary,
+                            side: BorderSide(
+                              color: isDark
+                                  ? AppTheme.darkPrimary
+                                  : AppTheme.lightPrimary,
+                              width: 0.9,
+                            ),
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 10, vertical: 5),
+                            visualDensity: VisualDensity.compact,
+                            shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8)),
+                          ),
+                          onPressed: () => _openMissionArchiveDetail(req),
+                          icon: const Icon(Icons.star_outline_rounded,
+                              size: 14),
+                          label: const Text(
+                            'RATE & REVIEW',
+                            style: TextStyle(
+                                fontSize: 10.5,
+                                fontWeight: FontWeight.w900,
+                                letterSpacing: 0.5),
+                          ),
+                        ),
+                      ],
                     ] else ...[
-                      OutlinedButton.icon(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
-                          side: BorderSide(
-                            color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
-                            width: 0.9,
-                          ),
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                          visualDensity: VisualDensity.compact,
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                        ),
-                        onPressed: () => _openMissionArchiveDetail(req),
-                        icon: const Icon(Icons.star_outline_rounded, size: 14),
-                        label: const Text(
-                          'RATE & REVIEW',
-                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, letterSpacing: 0.5),
+                      // Cancelled case — no rating prompt
+                      Text(
+                        isCancelled ? 'CLOSED' : status.toUpperCase(),
+                        style: TextStyle(
+                          color: textMuted,
+                          fontSize: 10,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.3,
                         ),
                       ),
                     ],
@@ -587,14 +671,85 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 }
 
+// ── Status Badge widget ────────────────────────────────────────────────────
+class _StatusBadge extends StatelessWidget {
+  final bool isCompleted;
+  final bool isCancelled;
+  final String status;
+  final bool isDark;
+
+  const _StatusBadge({
+    required this.isCompleted,
+    required this.isCancelled,
+    required this.status,
+    required this.isDark,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final Color bgColor;
+    final Color fgColor;
+    final IconData icon;
+    final String label;
+
+    if (isCompleted) {
+      bgColor = isDark
+          ? const Color(0xFF00E676).withValues(alpha: 0.15)
+          : const Color(0xFFDCFCE7);
+      fgColor = isDark ? const Color(0xFF00E676) : const Color(0xFF15803D);
+      icon = Icons.check_circle_rounded;
+      label = 'COMPLETED';
+    } else if (isCancelled) {
+      bgColor = isDark
+          ? Colors.red.withValues(alpha: 0.15)
+          : const Color(0xFFFEE2E2);
+      fgColor = isDark ? Colors.redAccent : const Color(0xFF991B1B);
+      icon = Icons.cancel_outlined;
+      label = 'CANCELLED';
+    } else {
+      bgColor = isDark
+          ? const Color(0xFF00D4FF).withValues(alpha: 0.15)
+          : const Color(0xFFE0F2FE);
+      fgColor =
+          isDark ? const Color(0xFF00D4FF) : const Color(0xFF0369A1);
+      icon = Icons.sync_rounded;
+      label = status.toUpperCase();
+    }
+
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: bgColor,
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 12, color: fgColor),
+          const SizedBox(width: 4),
+          Text(
+            label,
+            style: TextStyle(
+              fontSize: 9.5,
+              fontWeight: FontWeight.w900,
+              color: fgColor,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 // ---------------------------------------------------------------------------
 // ARCHIVED MISSION DETAIL & PATIENT FEEDBACK REPORT
-// Clean archival case report - NO live radar, NO "locating paramedic", NO first aid tips
+// Strictly for completed cases only. No live-vibes, no tips, no radar.
 // ---------------------------------------------------------------------------
 class _ArchivedMissionDetailSheet extends StatefulWidget {
   final Map<String, dynamic> request;
   final int initialRating;
-  final Function(int rating, List<String> tags, String comment) onRatingUpdated;
+  final Function(int rating, List<String> tags, String comment)
+      onRatingUpdated;
 
   const _ArchivedMissionDetailSheet({
     required this.request,
@@ -603,10 +758,12 @@ class _ArchivedMissionDetailSheet extends StatefulWidget {
   });
 
   @override
-  State<_ArchivedMissionDetailSheet> createState() => _ArchivedMissionDetailSheetState();
+  State<_ArchivedMissionDetailSheet> createState() =>
+      _ArchivedMissionDetailSheetState();
 }
 
-class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet> {
+class _ArchivedMissionDetailSheetState
+    extends State<_ArchivedMissionDetailSheet> {
   late int _rating;
   final List<String> _selectedTags = [];
   final TextEditingController _commentController = TextEditingController();
@@ -646,22 +803,29 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? const Color(0xFF07193F) : Colors.white;
-    final cardBorder = isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1);
-    final textPrimary = isDark ? Colors.white : const Color(0xFF0F172A);
-    final textMuted = isDark ? Colors.white60 : const Color(0xFF64748B);
-    final inputBg = isDark ? const Color(0xFF0D2559) : const Color(0xFFF8FAFC);
+    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
+    final cardBorder =
+        isDark ? AppTheme.darkCardBorder : AppTheme.lightCardBorder;
+    final textPrimary =
+        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textMuted =
+        isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
+    final inputBg = isDark
+        ? const Color(0xFF0D2559)
+        : const Color(0xFFF8FAFC);
+    final primaryColor =
+        isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
 
     final req = widget.request;
     final reqId = req['id']?.toString() ?? '';
-    final shortId = reqId.length > 8 ? reqId.substring(0, 8).toUpperCase() : reqId;
-    final status = req['status']?.toString() ?? 'Closed';
+    final shortId =
+        reqId.length > 8 ? reqId.substring(0, 8).toUpperCase() : reqId;
+    final status = req['status']?.toString() ?? 'Completed';
     final isCompleted = status.toLowerCase().contains('complete');
-    final isCancelled = status.toLowerCase().contains('cancel') || status.toLowerCase().contains('fail');
     final emergencyType = req['emergency_type']?.toString() ?? 'Emergency';
-    final address = req['patient_address']?.toString() ?? 'GPS Location Verified';
+    final address =
+        req['patient_address']?.toString() ?? 'GPS Location Verified';
 
-    // Hospital extraction
     String? hospitalName;
     String? hospitalAddress;
     if (req['hospital'] is Map) {
@@ -669,25 +833,23 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
       hospitalAddress = req['hospital']['address']?.toString();
     }
 
-    // Driver extraction
     String? driverName;
     String? vehicleLabel;
     if (req['driver'] is Map) {
-      driverName = req['driver']['display_name']?.toString() ?? req['driver']['full_name']?.toString();
+      driverName = req['driver']['display_name']?.toString() ??
+          req['driver']['full_name']?.toString();
       vehicleLabel = req['driver']['vehicle_label']?.toString();
     }
 
     return Padding(
-      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding:
+          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           border: Border(
-            top: BorderSide(
-              color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
-              width: 1.8,
-            ),
+            top: BorderSide(color: primaryColor, width: 1.8),
           ),
         ),
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -709,7 +871,7 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
               ),
               const SizedBox(height: 14),
 
-              // Archive Header
+              // ── Archive Header ────────────────────────────────────────────
               Row(
                 children: [
                   Container(
@@ -721,8 +883,12 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      isCompleted ? Icons.check_circle_rounded : Icons.folder_shared_rounded,
-                      color: isCompleted ? const Color(0xFF00E676) : const Color(0xFFFF334B),
+                      isCompleted
+                          ? Icons.check_circle_rounded
+                          : Icons.folder_shared_rounded,
+                      color: isCompleted
+                          ? const Color(0xFF00E676)
+                          : const Color(0xFFFF334B),
                       size: 22,
                     ),
                   ),
@@ -755,11 +921,13 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
               ),
               const SizedBox(height: 16),
 
-              // Case Outcome Card
+              // ── Case Outcome Card ─────────────────────────────────────────
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
-                  color: isDark ? const Color(0xFF0D2559) : const Color(0xFFF8FAFC),
+                  color: isDark
+                      ? const Color(0xFF0D2559)
+                      : const Color(0xFFF8FAFC),
                   borderRadius: BorderRadius.circular(14),
                   border: Border.all(color: cardBorder),
                 ),
@@ -769,15 +937,23 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
                     Row(
                       children: [
                         Icon(
-                          isCompleted ? Icons.verified_rounded : Icons.info_outline_rounded,
+                          isCompleted
+                              ? Icons.verified_rounded
+                              : Icons.info_outline_rounded,
                           size: 16,
-                          color: isCompleted ? const Color(0xFF00E676) : (isCancelled ? Colors.redAccent : const Color(0xFF00D4FF)),
+                          color: isCompleted
+                              ? const Color(0xFF00E676)
+                              : Colors.redAccent,
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          isCompleted ? 'DISPATCH COMPLETED' : (isCancelled ? 'DISPATCH CLOSED / CANCELLED' : status.toUpperCase()),
+                          isCompleted
+                              ? 'DISPATCH COMPLETED'
+                              : 'DISPATCH CLOSED / CANCELLED',
                           style: TextStyle(
-                            color: isCompleted ? const Color(0xFF00E676) : (isCancelled ? Colors.redAccent : const Color(0xFF00D4FF)),
+                            color: isCompleted
+                                ? const Color(0xFF00E676)
+                                : Colors.redAccent,
                             fontWeight: FontWeight.w900,
                             fontSize: 12,
                             letterSpacing: 0.5,
@@ -786,147 +962,208 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
                       ],
                     ),
                     const SizedBox(height: 10),
-                    _buildArchiveRow('Pickup Location:', address, textPrimary, textMuted),
+                    _buildArchiveRow(
+                        'Pickup Location:', address, textPrimary, textMuted),
                     const SizedBox(height: 6),
-                    _buildArchiveRow('Receiving Hospital:', hospitalName ?? 'Regional ER Center', textPrimary, textMuted),
+                    _buildArchiveRow(
+                        'Receiving Hospital:',
+                        hospitalName ?? 'Regional ER Center',
+                        textPrimary,
+                        textMuted),
                     if (hospitalAddress != null) ...[
                       const SizedBox(height: 2),
                       Padding(
                         padding: const EdgeInsets.only(left: 12),
-                        child: Text(hospitalAddress, style: TextStyle(fontSize: 11, color: textMuted)),
+                        child: Text(hospitalAddress,
+                            style:
+                                TextStyle(fontSize: 11, color: textMuted)),
                       ),
                     ],
                     const SizedBox(height: 6),
-                    _buildArchiveRow('Assigned Responder:', '${driverName ?? "Paramedic Unit"} (${vehicleLabel ?? "Solace Unit"})', textPrimary, textMuted),
+                    _buildArchiveRow(
+                        'Assigned Responder:',
+                        '${driverName ?? "Paramedic Unit"} (${vehicleLabel ?? "Solace Unit"})',
+                        textPrimary,
+                        textMuted),
                   ],
                 ),
               ),
               const SizedBox(height: 18),
 
-              // Rating and Review Section
-              Text(
-                'PATIENT SERVICE REVIEW & RATING',
-                style: TextStyle(
-                  color: textPrimary,
-                  fontWeight: FontWeight.w900,
-                  fontSize: 12,
-                  letterSpacing: 0.8,
+              // ── Rating & Review (completed cases only) ────────────────────
+              if (isCompleted) ...[
+                Text(
+                  'PATIENT SERVICE REVIEW',
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontWeight: FontWeight.w900,
+                    fontSize: 12,
+                    letterSpacing: 0.8,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                'Rate your dispatch experience to assist continuous emergency fleet optimization.',
-                style: TextStyle(color: textMuted, fontSize: 11),
-              ),
-              const SizedBox(height: 12),
+                const SizedBox(height: 4),
+                Text(
+                  'Rate your dispatch experience to help improve our emergency fleet.',
+                  style: TextStyle(color: textMuted, fontSize: 11),
+                ),
+                const SizedBox(height: 12),
 
-              // 5 Stars row
-              Center(
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: List.generate(5, (index) {
-                    final starNum = index + 1;
-                    return IconButton(
-                      iconSize: 34,
-                      padding: const EdgeInsets.symmetric(horizontal: 3),
-                      onPressed: () {
-                        HapticFeedback.selectionClick();
-                        setState(() => _rating = starNum);
-                      },
-                      icon: Icon(
-                        starNum <= _rating ? Icons.star_rounded : Icons.star_border_rounded,
+                // 5-star row
+                Center(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: List.generate(5, (index) {
+                      final starNum = index + 1;
+                      return IconButton(
+                        iconSize: 34,
+                        padding:
+                            const EdgeInsets.symmetric(horizontal: 3),
+                        onPressed: () {
+                          HapticFeedback.selectionClick();
+                          setState(() => _rating = starNum);
+                        },
+                        icon: Icon(
+                          starNum <= _rating
+                              ? Icons.star_rounded
+                              : Icons.star_border_rounded,
+                          color: Colors.amber,
+                        ),
+                      );
+                    }),
+                  ),
+                ),
+                Center(
+                  child: Text(
+                    _rating == 5
+                        ? 'Exceptional & Lifesaving'
+                        : (_rating == 4
+                            ? 'Very Professional & Fast'
+                            : (_rating == 3
+                                ? 'Standard Response'
+                                : 'Needs Improvement')),
+                    style: const TextStyle(
                         color: Colors.amber,
-                      ),
-                    );
-                  }),
-                ),
-              ),
-              Center(
-                child: Text(
-                  _rating == 5
-                      ? 'Exceptional & Lifesaving'
-                      : (_rating == 4
-                          ? 'Very Professional & Fast'
-                          : (_rating == 3 ? 'Standard Response' : 'Needs Improvement')),
-                  style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12.5),
-                ),
-              ),
-              const SizedBox(height: 14),
-
-              // Experience tags
-              Wrap(
-                spacing: 8,
-                runSpacing: 8,
-                children: _availableTags.map((tag) {
-                  final isSelected = _selectedTags.contains(tag);
-                  return FilterChip(
-                    label: Text(
-                      tag,
-                      style: TextStyle(
-                        fontSize: 11,
                         fontWeight: FontWeight.bold,
-                        color: isSelected
-                            ? (isDark ? const Color(0xFF061536) : Colors.white)
-                            : (isDark ? Colors.white70 : const Color(0xFF334155)),
+                        fontSize: 12.5),
+                  ),
+                ),
+                const SizedBox(height: 14),
+
+                // Experience tags
+                Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
+                  children: _availableTags.map((tag) {
+                    final isSelected = _selectedTags.contains(tag);
+                    return FilterChip(
+                      label: Text(
+                        tag,
+                        style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.bold,
+                          color: isSelected
+                              ? (isDark
+                                  ? AppTheme.darkBg
+                                  : Colors.white)
+                              : (isDark
+                                  ? Colors.white70
+                                  : AppTheme.lightTextSecondary),
+                        ),
                       ),
-                    ),
-                    selected: isSelected,
-                    selectedColor: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
-                    backgroundColor: isDark ? const Color(0xFF0D2559) : const Color(0xFFF1F5F9),
-                    side: BorderSide(
-                      color: isSelected
-                          ? Colors.transparent
-                          : (isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1)),
-                    ),
-                    onSelected: (_) => _toggleTag(tag),
-                  );
-                }).toList(),
-              ),
-              const SizedBox(height: 14),
-
-              // Notes
-              TextField(
-                controller: _commentController,
-                maxLines: 2,
-                style: TextStyle(color: textPrimary, fontSize: 13),
-                decoration: InputDecoration(
-                  hintText: 'Add an optional note regarding paramedic conduct or triage...',
-                  hintStyle: TextStyle(color: textMuted, fontSize: 11.5),
-                  filled: true,
-                  fillColor: inputBg,
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(12),
-                    borderSide: BorderSide(color: cardBorder),
-                  ),
-                  contentPadding: const EdgeInsets.all(12),
-                ),
-              ),
-              const SizedBox(height: 18),
-
-              // Submit Button
-              SizedBox(
-                height: 46,
-                child: FilledButton.icon(
-                  style: FilledButton.styleFrom(
-                    backgroundColor: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
-                    foregroundColor: isDark ? const Color(0xFF061536) : Colors.white,
-                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                  ),
-                  onPressed: () {
-                    widget.onRatingUpdated(
-                      _rating,
-                      _selectedTags,
-                      _commentController.text.trim(),
+                      selected: isSelected,
+                      selectedColor: primaryColor,
+                      backgroundColor: isDark
+                          ? const Color(0xFF0D2559)
+                          : const Color(0xFFF1F5F9),
+                      side: BorderSide(
+                        color: isSelected
+                            ? Colors.transparent
+                            : cardBorder,
+                      ),
+                      onSelected: (_) => _toggleTag(tag),
                     );
-                    Navigator.of(context).pop();
-                  },
-                  icon: const Icon(Icons.check_rounded, size: 18),
-                  label: const Text(
-                    'SUBMIT EXPERIENCE REVIEW',
-                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12.5, letterSpacing: 0.5),
+                  }).toList(),
+                ),
+                const SizedBox(height: 14),
+
+                // Comment box
+                TextField(
+                  controller: _commentController,
+                  maxLines: 2,
+                  style: TextStyle(color: textPrimary, fontSize: 13),
+                  cursorColor: primaryColor,
+                  decoration: InputDecoration(
+                    hintText:
+                        'Optional note on paramedic conduct or triage...',
+                    hintStyle:
+                        TextStyle(color: textMuted, fontSize: 11.5),
+                    filled: true,
+                    fillColor: inputBg,
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: cardBorder),
+                    ),
+                    enabledBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide: BorderSide(color: cardBorder),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(12),
+                      borderSide:
+                          BorderSide(color: primaryColor, width: 1.8),
+                    ),
+                    contentPadding: const EdgeInsets.all(12),
                   ),
                 ),
-              ),
+                const SizedBox(height: 18),
+
+                // Submit
+                SizedBox(
+                  height: 46,
+                  child: FilledButton.icon(
+                    style: FilledButton.styleFrom(
+                      backgroundColor: primaryColor,
+                      foregroundColor:
+                          isDark ? AppTheme.darkBg : Colors.white,
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(12)),
+                    ),
+                    onPressed: () {
+                      widget.onRatingUpdated(
+                        _rating,
+                        _selectedTags,
+                        _commentController.text.trim(),
+                      );
+                      Navigator.of(context).pop();
+                    },
+                    icon: const Icon(Icons.check_rounded, size: 18),
+                    label: const Text(
+                      'SUBMIT EXPERIENCE REVIEW',
+                      style: TextStyle(
+                          fontWeight: FontWeight.w900,
+                          fontSize: 12.5,
+                          letterSpacing: 0.5),
+                    ),
+                  ),
+                ),
+              ] else ...[
+                // Cancelled — simple note, no review prompts
+                Container(
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: Colors.red.withValues(alpha: 0.08),
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(
+                        color: Colors.redAccent.withValues(alpha: 0.3)),
+                  ),
+                  child: Text(
+                    'This dispatch was cancelled or closed without completion. '
+                    'No service review is required.',
+                    style:
+                        TextStyle(color: textMuted, fontSize: 12, height: 1.4),
+                  ),
+                ),
+              ],
             ],
           ),
         ),
@@ -934,18 +1171,26 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
     );
   }
 
-  Widget _buildArchiveRow(String label, String value, Color textPrimary, Color textMuted) {
+  Widget _buildArchiveRow(
+      String label, String value, Color textPrimary, Color textMuted) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
           width: 120,
-          child: Text(label, style: TextStyle(color: textMuted, fontSize: 11.5, fontWeight: FontWeight.w500)),
+          child: Text(label,
+              style: TextStyle(
+                  color: textMuted,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.w500)),
         ),
         Expanded(
           child: Text(
             value,
-            style: TextStyle(color: textPrimary, fontSize: 11.5, fontWeight: FontWeight.bold),
+            style: TextStyle(
+                color: textPrimary,
+                fontSize: 11.5,
+                fontWeight: FontWeight.bold),
           ),
         ),
       ],
