@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -110,7 +110,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               'patient_lng, created_at, client_user_id, contact_phone, '
               'hospital_id, driver_id, notes, priority',
             )
-            .eq('client_user_id', uid)
+          .eq('client_user_id', uid)
             .or(
               'status.eq.Completed,'
               'status.eq.completed,'
@@ -1197,3 +1197,4 @@ class _ArchivedMissionDetailSheetState
     );
   }
 }
+
