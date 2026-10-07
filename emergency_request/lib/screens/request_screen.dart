@@ -19,7 +19,7 @@ import 'live_ambulance_tracking_screen.dart';
 const LatLng kDefaultCenter = LatLng(6.5244, 3.3792);
 
 class RequestScreen extends StatefulWidget {
-  final Function(String requestId, String address)? onEmergencyCreated;
+  final Function? onEmergencyCreated;
 
   const RequestScreen({super.key, this.onEmergencyCreated});
 
@@ -46,6 +46,7 @@ class _RequestScreenState extends State<RequestScreen>
   // Active mission tracking state
   Map<String, dynamic>? _activeMission;
   Timer? _activeMissionTimer;
+  StreamSubscription? _realtimeSub;
 
   // Cached profile data
   String? _profileName;
@@ -79,12 +80,22 @@ class _RequestScreenState extends State<RequestScreen>
     _activeMissionTimer = Timer.periodic(const Duration(seconds: 4), (_) {
       _checkActiveMission();
     });
+
+    try {
+      _realtimeSub = Supabase.instance.client
+          .from('emergency_requests')
+          .stream(primaryKey: ['id'])
+          .listen((_) {
+            _checkActiveMission();
+          }, onError: (_) {});
+    } catch (_) {}
   }
 
   @override
   void dispose() {
     _pulseController.dispose();
     _activeMissionTimer?.cancel();
+    _realtimeSub?.cancel();
     _geocoding.dispose();
     super.dispose();
   }
@@ -95,7 +106,7 @@ class _RequestScreenState extends State<RequestScreen>
     try {
       final res = await Supabase.instance.client
           .from('emergency_requests')
-          .select('id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, driver_id, drivers(full_name, phone_number, vehicle_label)')
+          .select('id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, driver_id, drivers(display_name, phone, vehicle_label)')
           .or('client_user_id.eq.' + uid + ',reported_by_user_id.eq.' + uid)
           .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
           .order('created_at', ascending: false)
@@ -105,9 +116,32 @@ class _RequestScreenState extends State<RequestScreen>
       if (mounted) {
         setState(() {
           _activeMission = res;
+          if (res == null && _submitting) {
+            _submitting = false;
+          }
         });
       }
-    } catch (_) {}
+    } catch (_) {
+      try {
+        final res = await Supabase.instance.client
+            .from('emergency_requests')
+            .select('id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, driver_id')
+            .or('client_user_id.eq.' + uid + ',reported_by_user_id.eq.' + uid)
+            .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
+            .order('created_at', ascending: false)
+            .limit(1)
+            .maybeSingle();
+
+        if (mounted) {
+          setState(() {
+            _activeMission = res;
+            if (res == null && _submitting) {
+              _submitting = false;
+            }
+          });
+        }
+      } catch (_) {}
+    }
   }
 
   Future<void> _fetchProfileDefaults() async {
@@ -294,8 +328,14 @@ class _RequestScreenState extends State<RequestScreen>
 
       if (!mounted) return;
 
+      setState(() => _submitting = false);
+
       if (widget.onEmergencyCreated != null && createdRequestId != null) {
-        widget.onEmergencyCreated!(createdRequestId, finalAddress);
+        try {
+          (widget.onEmergencyCreated as dynamic)(createdRequestId, finalAddress, fix.latitude, fix.longitude);
+        } catch (_) {
+          (widget.onEmergencyCreated as dynamic)(createdRequestId, finalAddress);
+        }
       } else {
         Navigator.of(context).push(
           MaterialPageRoute<void>(
