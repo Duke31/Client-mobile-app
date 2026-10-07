@@ -12,11 +12,6 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Unpack Project Zip
-        run: |
-          if ls *.zip > /dev/null 2>&1; then unzip -o *.zip; fi
-          if [ -d emergency_request ]; then cp -R emergency_request/. .; fi
-
       - name: Fix submitted screen
         run: |
           # Remove stale interactive:false lines (original fix)
