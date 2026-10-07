@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -88,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
             .select(
               'id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority',
             )
-            .eq('client_user_id', uid)
+          .eq('client_user_id', uid)
             .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
             .order('created_at', ascending: false)
             .limit(1)
@@ -360,3 +360,4 @@ class _NoActiveMissionView extends StatelessWidget {
     );
   }
 }
+
