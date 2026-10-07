@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -30,7 +30,8 @@ class SubmittedScreen extends StatefulWidget {
   State<SubmittedScreen> createState() => _SubmittedScreenState();
 }
 
-class _SubmittedScreenState extends State<SubmittedScreen> with SingleTickerProviderStateMixin {
+class _SubmittedScreenState extends State<SubmittedScreen>
+    with SingleTickerProviderStateMixin {
   final SupabaseClient _supabase = Supabase.instance.client;
 
   String? _requestId;
@@ -51,20 +52,94 @@ class _SubmittedScreenState extends State<SubmittedScreen> with SingleTickerProv
   late Animation<double> _radarScale;
   late Animation<double> _radarOpacity;
 
-  bool get _isCompleted => _currentStatus.toLowerCase().contains('complete');
-  bool get _isCancelled => _currentStatus.toLowerCase().contains('cancel') || _currentStatus.toLowerCase().contains('fail');
-  String get _shortId => _requestId != null && _requestId!.length > 8 ? _requestId!.substring(0, 8).toUpperCase() : (_requestId ?? 'PENDING');
+  static const List<String> _orderedPhases = [
+    'Pending dispatch',
+    'Hospital confirmed',
+    'Driver assigned',
+    'En route to patient',
+    'Arrived at scene',
+    'Patient picked up',
+    'En route to hospital',
+    'Arrived / intake',
+    'Completed',
+  ];
+
+  static const List<String> _phaseLabels = [
+    'Triage & Broadcast',
+    'Hospital ER Bay Allocated',
+    'Paramedic Crew Mobilized',
+    'Ambulance En Route',
+    'Arrived at Patient',
+    'Patient On Board',
+    'En Route to Emergency Hospital',
+    'Hospital Intake & Transfer',
+    'Patient Care Handover Complete',
+  ];
+
+  int get _currentPhaseIndex {
+    final status = _currentStatus.trim();
+    for (int i = 0; i < _orderedPhases.length; i++) {
+      if (status.toLowerCase() == _orderedPhases[i].toLowerCase()) return i;
+    }
+    if (status.toLowerCase().contains('hospital confirmed')) return 1;
+    if (status.toLowerCase().contains('driver assigned')) return 2;
+    if (status.toLowerCase().contains('en route to patient')) return 3;
+    if (status.toLowerCase().contains('arrived at scene')) return 4;
+    if (status.toLowerCase().contains('picked up')) return 5;
+    if (status.toLowerCase().contains('en route to hospital')) return 6;
+    if (status.toLowerCase().contains('intake')) return 7;
+    if (status.toLowerCase().contains('complete')) return 8;
+    return 0;
+  }
+
+  bool get _isCompleted =>
+      _currentStatus.toLowerCase().contains('complete');
+
+  bool get _isCancelled =>
+      _currentStatus.toLowerCase().contains('cancel') ||
+      _currentStatus.toLowerCase().contains('fail');
+
+  bool get _canClientCancel {
+    final s = _currentStatus.toLowerCase();
+    return s.contains('pending') ||
+        s.contains('hospital confirmed') ||
+        s.contains('driver assigned');
+  }
+
+  bool get _canTrackLive {
+    final s = _currentStatus.toLowerCase();
+    return s.contains('driver assigned') ||
+        s.contains('en route') ||
+        s.contains('arrived') ||
+        s.contains('picked up');
+  }
+
+  String get _shortId {
+    final id = _requestId ?? '';
+    return id.length > 8 ? id.substring(0, 8).toUpperCase() : id;
+  }
 
   @override
   void initState() {
     super.initState();
-    _radarController = AnimationController(vsync: this, duration: const Duration(milliseconds: 1500))..repeat();
-    _radarScale = Tween<double>(begin: 0.8, end: 1.6).animate(CurvedAnimation(parent: _radarController, curve: Curves.easeOut));
-    _radarOpacity = Tween<double>(begin: 1.0, end: 0.0).animate(CurvedAnimation(parent: _radarController, curve: Curves.easeOut));
+    _requestId = widget.requestId;
 
-    if (widget.requestId != null) {
-      _requestId = widget.requestId;
-      _startStatusMonitoring();
+    _radarController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1400),
+    )..repeat();
+
+    _radarScale = Tween<double>(begin: 0.9, end: 1.5).animate(
+      CurvedAnimation(parent: _radarController, curve: Curves.easeOutCubic),
+    );
+    _radarOpacity = Tween<double>(begin: 0.75, end: 0.0).animate(
+      CurvedAnimation(parent: _radarController, curve: Curves.easeOutCubic),
+    );
+
+    _fetchUserRole();
+
+    if (_requestId != null && _requestId!.isNotEmpty) {
+      _startStatusMonitoring(_requestId!);
     } else {
       _fetchActiveRequestId();
     }
@@ -72,105 +147,261 @@ class _SubmittedScreenState extends State<SubmittedScreen> with SingleTickerProv
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
-    _realtimeSub?.cancel();
     _radarController.dispose();
+    _stopMonitoring();
     super.dispose();
   }
 
-  Future<void> _fetchActiveRequestId() async {
+  Future<void> _fetchUserRole() async {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return;
     try {
       final res = await _supabase
-          .from('emergency_requests')
-          .select('id, status')
-          .eq('client_user_id', uid)
-          .neq('status', 'Completed')
-          .neq('status', 'Cancelled / failed')
-          .order('created_at', ascending: false)
-          .limit(1)
+          .from('profiles')
+          .select('role')
+          .eq('user_id', uid)
           .maybeSingle();
-      if (res != null && mounted) {
+      if (res != null && res['role'] != null && mounted) {
         setState(() {
-          _requestId = res['id']?.toString();
-          _currentStatus = res['status']?.toString() ?? 'Pending dispatch';
+          _actorRole = res['role'].toString();
         });
-        _startStatusMonitoring();
       }
     } catch (_) {}
   }
 
-  void _startStatusMonitoring() {
-    if (_requestId == null) return;
-    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) => _fetchStatus());
+  void _stopMonitoring() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
+    _realtimeSub?.cancel();
+    _realtimeSub = null;
+  }
+
+  void _startStatusMonitoring(String reqId) {
+    _refreshStatus(reqId);
+    _pollTimer?.cancel();
+    _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
+      _refreshStatus(reqId);
+    });
+
+    _realtimeSub?.cancel();
     try {
       _realtimeSub = _supabase
           .from('emergency_requests')
           .stream(primaryKey: ['id'])
-          .eq('id', _requestId!)
+          .eq('id', reqId)
           .listen((data) {
-            if (data.isNotEmpty) {
-              _updateStateFromDb(data.first);
+            if (data.isNotEmpty && mounted) {
+              final newStatus = data.first['status']?.toString();
+              if (newStatus != null && newStatus != _currentStatus) {
+                _handleStatusChange(newStatus);
+              }
+              _refreshStatus(reqId);
             }
-          });
-    } catch (_) {}
-    _fetchStatus();
-  }
-
-  Future<void> _fetchStatus() async {
-    if (_requestId == null) return;
-    try {
-      final data = await _supabase
-          .from('emergency_requests')
-          .select('*, hospital:hospitals(name, address, phone), driver:drivers(display_name, full_name, phone, phone_number, vehicle_label)')
-          .eq('id', _requestId!)
-          .maybeSingle();
-      if (data != null && mounted) _updateStateFromDb(data);
+          }, onError: (_) {});
     } catch (_) {}
   }
 
-  void _updateStateFromDb(Map<String, dynamic> data) {
-    if (!mounted) return;
+  void _handleStatusChange(String newStatus) {
     setState(() {
-      _currentStatus = data['status']?.toString() ?? _currentStatus;
-      if (data['hospital'] != null) {
-        _hospitalName = data['hospital']['name']?.toString();
-        _hospitalAddress = data['hospital']['address']?.toString();
-        _hospitalPhone = data['hospital']['phone']?.toString();
-      }
-      if (data['driver'] != null) {
-        _driverName = data['driver']['display_name']?.toString() ?? data['driver']['full_name']?.toString();
-        _driverPhone = data['driver']['phone']?.toString() ?? data['driver']['phone_number']?.toString();
-        _vehicleLabel = data['driver']['vehicle_label']?.toString();
-      }
+      _currentStatus = newStatus;
     });
+    if (_isCompleted || _isCancelled) {
+      _stopMonitoring();
+    }
   }
 
-  Future<void> _cancelRequest() async {
-    final id = _requestId;
-    if (id == null) return;
-    final confirm = await showDialog<bool>(
+  Future<void> _refreshStatus(String reqId) async {
+    try {
+      final req = await _supabase
+          .from('emergency_requests')
+          .select('*, hospital:hospitals(*), driver:drivers(*)')
+          .eq('id', reqId)
+          .maybeSingle();
+
+      if (req == null || !mounted) return;
+
+      final newStatus = req['status']?.toString();
+      if (newStatus != null && newStatus != _currentStatus) {
+        _handleStatusChange(newStatus);
+      }
+
+      String? hName = _hospitalName;
+      String? hAddr = _hospitalAddress;
+      String? hPhone = _hospitalPhone;
+      String? dName = _driverName;
+      String? vLabel = _vehicleLabel;
+      String? dPhone = _driverPhone;
+
+      if (req['hospital'] is Map) {
+        final h = req['hospital'] as Map;
+        hName = h['name']?.toString() ?? h['hospital_name']?.toString() ?? hName;
+        hAddr = h['address']?.toString() ?? h['location']?.toString() ?? hAddr;
+        hPhone = h['intake_phone']?.toString() ??
+            h['phone']?.toString() ??
+            h['emergency_phone']?.toString() ??
+            hPhone;
+      } else if (req['hospital_id'] != null) {
+        try {
+          final hRow = await _supabase
+              .from('hospitals')
+              .select('*')
+              .eq('id', req['hospital_id'])
+              .maybeSingle();
+          if (hRow != null) {
+            hName = hRow['name']?.toString() ?? hRow['hospital_name']?.toString() ?? hName;
+            hAddr = hRow['address']?.toString() ?? hRow['location']?.toString() ?? hAddr;
+            hPhone = hRow['intake_phone']?.toString() ??
+                hRow['phone']?.toString() ??
+                hRow['emergency_phone']?.toString() ??
+                hPhone;
+          }
+        } catch (_) {}
+      }
+
+      if (req['driver'] is Map) {
+        final d = req['driver'] as Map;
+        dName = d['display_name']?.toString() ?? d['full_name']?.toString() ?? dName;
+        vLabel = d['vehicle_label']?.toString() ?? d['vehicle_plate']?.toString() ?? vLabel;
+        dPhone = d['phone']?.toString() ?? d['phone_number']?.toString() ?? dPhone;
+      } else if (req['driver_id'] != null) {
+        try {
+          final dRow = await _supabase
+              .from('drivers')
+              .select('*')
+              .eq('id', req['driver_id'])
+              .maybeSingle();
+          if (dRow != null) {
+            dName = dRow['display_name']?.toString() ?? dRow['full_name']?.toString() ?? dName;
+            vLabel = dRow['vehicle_label']?.toString() ?? dRow['vehicle_plate']?.toString() ?? vLabel;
+            dPhone = dRow['phone']?.toString() ?? dRow['phone_number']?.toString() ?? dPhone;
+          }
+        } catch (_) {}
+      }
+
+      if (mounted) {
+        setState(() {
+          _hospitalName = hName;
+          _hospitalAddress = hAddr;
+          _hospitalPhone = hPhone;
+          _driverName = dName;
+          _vehicleLabel = vLabel;
+          _driverPhone = dPhone;
+        });
+      }
+    } catch (e) {
+      debugPrint('Status poll error: $e');
+    }
+  }
+
+  Future<void> _fetchActiveRequestId() async {
+    try {
+      final uid = _supabase.auth.currentUser?.id;
+      if (uid == null) return;
+
+      final res = await _supabase
+          .from('emergency_requests')
+          .select('id, status')
+          .eq('client_user_id', uid)
+          .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
+          .order('created_at', ascending: false)
+          .limit(1)
+          .maybeSingle();
+
+      if (res != null && mounted) {
+        final id = res['id']?.toString();
+        setState(() {
+          _requestId = id;
+          if (res['status'] != null) {
+            _currentStatus = res['status'].toString();
+          }
+        });
+        if (id != null) {
+          _startStatusMonitoring(id);
+        }
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _confirmAndCancelRequest() async {
+    if (!_canClientCancel) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Cannot cancel: Ambulance is already en route with patient.'),
+          backgroundColor: Colors.orange,
+        ),
+      );
+      return;
+    }
+
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final shouldCancel = await showDialog<bool>(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: const Text('Cancel Emergency?'),
-        content: const Text('Are you sure you want to cancel this emergency dispatch?'),
-        actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('NO, KEEP ACTIVE')),
-          TextButton(
-            onPressed: () => Navigator.of(ctx).pop(true),
-            child: const Text('YES, CANCEL', style: TextStyle(color: Colors.redAccent)),
+      builder: (dialogContext) {
+        return AlertDialog(
+          backgroundColor: isDark ? const Color(0xFF07193F) : Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          title: Text(
+            'Cancel Emergency Request?',
+            style: TextStyle(
+              color: isDark ? Colors.white : const Color(0xFF0F172A),
+              fontWeight: FontWeight.bold,
+            ),
           ),
-        ],
-      ),
+          content: Text(
+            'Are you sure you want to cancel this emergency dispatch? Central medical dispatch and responding paramedics will stand down.',
+            style: TextStyle(
+              color: isDark ? Colors.white70 : const Color(0xFF475569),
+              fontSize: 13,
+              height: 1.4,
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: Text(
+                'Keep Active',
+                style: TextStyle(color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7)),
+              ),
+            ),
+            FilledButton(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFD32F2F),
+                foregroundColor: Colors.white,
+              ),
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Yes, Cancel Request'),
+            ),
+          ],
+        );
+      },
     );
-    if (confirm != true) return;
+
+    if (shouldCancel == true && mounted) {
+      await _executeCancelRpc();
+    }
+  }
+
+  Future<void> _executeCancelRpc() async {
+    final idToCancel = _requestId;
+    if (idToCancel == null || idToCancel.isEmpty) return;
     setState(() => _isCancelling = true);
     try {
-      await _supabase.from('emergency_requests').update({'status': 'Cancelled / failed'}).eq('id', id);
-      if (mounted) setState(() { _isCancelling = false; _currentStatus = 'Cancelled / failed'; });
+      await _supabase.rpc('transition_emergency_state', params: {
+        'request_id': idToCancel,
+        'new_state': 'Cancelled / failed',
+        'actor_role': _actorRole,
+      });
+      if (!mounted) return;
+      _returnHome();
     } catch (e) {
-      if (mounted) setState(() => _isCancelling = false);
+      if (!mounted) return;
+      setState(() => _isCancelling = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Cancel error: $e'),
+          backgroundColor: Colors.redAccent,
+        ),
+      );
     }
   }
 
@@ -182,13 +413,36 @@ class _SubmittedScreenState extends State<SubmittedScreen> with SingleTickerProv
       MaterialPageRoute<void>(
         builder: (_) => LiveAmbulanceTrackingScreen(
           requestId: id,
-          patientLocation: (widget.latitude != null && widget.longitude != null) 
-              ? LatLng(widget.latitude!, widget.longitude!) 
-              : LatLng(0, 0),
+          patientLocation: (widget.latitude != null && widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : const LatLng(0, 0),
+          
           patientAddress: widget.address ?? widget.patientAddress ?? 'Scene Location',
         ),
       ),
     );
+  }
+
+  Future<void> _callNumber(String phone) async {
+    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$clean');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
+
+  Future<void> _sendSms(String phone, String body) async {
+    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('sms:$clean?body=${Uri.encodeComponent(body)}');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
+  }
+
+  Future<void> _openWhatsApp(String phone, String body) async {
+    final clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    final uri = Uri.parse('https://wa.me/$clean?text=${Uri.encodeComponent(body)}');
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {}
   }
 
   void _returnHome() {
@@ -197,259 +451,734 @@ class _SubmittedScreenState extends State<SubmittedScreen> with SingleTickerProv
     } else if (Navigator.of(context).canPop()) {
       Navigator.of(context).pop();
     } else {
-      Navigator.of(context).pushReplacement(MaterialPageRoute<void>(builder: (_) => const HomeScreen()));
+      Navigator.of(context).pushReplacement(
+        MaterialPageRoute<void>(builder: (_) => const HomeScreen()),
+      );
     }
-  }
-
-  // --- Dynamic UI Helpers ---
-  
-  IconData get _statusIcon {
-    final s = _currentStatus.toLowerCase();
-    if (s.contains('cancel') || s.contains('fail')) return Icons.cancel_rounded;
-    if (s.contains('complete')) return Icons.check_circle_rounded;
-    if (s.contains('en route to patient')) return Icons.directions_car_filled_rounded;
-    if (s.contains('hospital confirmed')) return Icons.local_hospital_rounded;
-    if (s.contains('driver assigned')) return Icons.person_pin_circle_rounded;
-    return Icons.notifications_active_rounded;
-  }
-
-  Color get _statusColor {
-    final s = _currentStatus.toLowerCase();
-    if (s.contains('cancel') || s.contains('fail')) return Colors.redAccent;
-    if (s.contains('complete')) return const Color(0xFF00E676);
-    if (s.contains('en route to patient') || s.contains('driver assigned')) return const Color(0xFF0284C7);
-    return Colors.orange;
   }
 
   String get _headlineText {
     final s = _currentStatus.toLowerCase();
-    if (s.contains('pending')) return 'Help is being notified';
-    if (s.contains('hospital confirmed')) return 'Hospital Bay Reserved';
-    if (s.contains('driver assigned')) return 'Ambulance Assigned';
-    if (s.contains('en route to patient')) return 'Ambulance En Route';
-    if (s.contains('arrived at scene')) return 'Ambulance Arrived';
-    if (s.contains('picked up')) return 'Patient On Board';
-    if (s.contains('en route to hospital')) return 'Transferring to ER';
-    if (s.contains('intake')) return 'Hospital Triage Active';
-    if (s.contains('complete')) return 'Mission Complete';
-    if (s.contains('cancel')) return 'Request Cancelled';
+    if (s.contains('pending')) return 'Broadcasting Emergency Call...';
+    if (s.contains('hospital confirmed')) return 'Hospital Trauma Bay Reserved';
+    if (s.contains('driver assigned')) return 'Ambulance Unit Assigned';
+    if (s.contains('en route to patient')) return 'Ambulance En Route To You';
+    if (s.contains('arrived at scene')) return 'Ambulance Arrived At Scene';
+    if (s.contains('picked up')) return 'Patient On Board Ambulance';
+    if (s.contains('en route to hospital')) return 'Transferring To Emergency ER';
+    if (s.contains('intake')) return 'Hospital Triage & Transfer Active';
+    if (s.contains('complete')) return 'Emergency Mission Complete';
+    if (s.contains('cancel')) return 'Emergency Request Cancelled';
     return _currentStatus;
   }
 
   String get _descriptionText {
     final s = _currentStatus.toLowerCase();
-    if (s.contains('pending')) return 'Your dispatch request is being broadcast to nearby verified hospitals and response teams.';
-    if (s.contains('hospital confirmed')) return 'Emergency center has confirmed ICU/triage readiness for your arrival.';
-    if (s.contains('driver assigned') || s.contains('en route to patient')) return 'A paramedic unit has accepted the dispatch and is navigating to your location.';
-    if (s.contains('arrived at scene')) return 'Paramedics have arrived at your location. Please signal the response unit.';
-    if (s.contains('picked up') || s.contains('en route to hospital')) return 'Patient is safely on board ambulance and receiving care en route to hospital.';
-    if (s.contains('complete')) return 'Patient care transferred to medical team.';
-    if (s.contains('cancel')) return 'This emergency dispatch request has been closed.';
+    if (s.contains('pending')) {
+      return 'Central dispatch is alerting rapid response fleet and reserving an ER bay.';
+    }
+    if (s.contains('hospital confirmed')) {
+      final h = _hospitalName ?? 'Emergency Center';
+      return '$h has confirmed ICU/triage readiness for your arrival.';
+    }
+    if (s.contains('driver assigned')) {
+      final d = _driverName ?? 'Paramedic Unit';
+      final v = _vehicleLabel != null ? ' ($_vehicleLabel)' : '';
+      return '$d$v accepted dispatch and is activating siren & telemetry.';
+    }
+    if (s.contains('en route to patient')) {
+      return 'Ambulance is navigating rapidly to your GPS coordinates. Stay on the line.';
+    }
+    if (s.contains('arrived at scene')) {
+      return 'Paramedics have arrived at your location. Please signal response unit.';
+    }
+    if (s.contains('picked up')) {
+      return 'Patient is safely on board ambulance receiving continuous clinical care.';
+    }
+    if (s.contains('en route to hospital')) {
+      final h = _hospitalName ?? 'Hospital ER';
+      return 'Ambulance en route to $h. Paramedics updating receiving doctors.';
+    }
+    if (s.contains('intake')) {
+      return 'Handover to trauma doctors and triage team in progress.';
+    }
+    if (s.contains('complete')) {
+      return 'Patient care transferred to medical team. Emergency run finished.';
+    }
+    if (s.contains('cancel')) {
+      return 'This emergency dispatch request has been closed / cancelled.';
+    }
     return 'Status: $_currentStatus';
   }
 
   @override
   Widget build(BuildContext context) {
-    final isDark = Theme.of(context).brightness == Brightness.dark;
-    // Mimic the clean yellowish-white or deep dark background
-    final bgColor = isDark ? AppTheme.darkBg : const Color(0xFFFFFDF8);
-    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
-    final textPrimary = isDark ? Colors.white : const Color(0xFF1E293B);
-    final textMuted = isDark ? Colors.white70 : const Color(0xFF64748B);
-
     final isTerminal = _isCompleted || _isCancelled;
+    final activePhase = _currentPhaseIndex;
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+
+    final bgColor = isDark ? AppTheme.darkBg : AppTheme.lightBg;
+    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
+    final cardBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFCBD5E1);
+    final textPrimary = isDark ? Colors.white : const Color(0xFF0F172A);
+    final textSecondary = isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7);
+    final textMuted = isDark ? Colors.white60 : const Color(0xFF64748B);
+    final innerChipBg = isDark ? const Color(0xFF0D2559) : const Color(0xFFF1F5F9);
 
     return PopScope(
       canPop: isTerminal,
       onPopInvokedWithResult: (didPop, _) {
-        if (!didPop) _returnHome();
+        if (!didPop) {
+          _returnHome();
+        }
       },
       child: Scaffold(
         backgroundColor: bgColor,
         appBar: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          centerTitle: true,
-          title: Text(
-            'Emergency Status',
-            style: TextStyle(color: textPrimary, fontSize: 18, fontWeight: FontWeight.w700),
+          backgroundColor: cardColor,
+          elevation: isDark ? 0 : 0.5,
+          leadingWidth: 44,
+          leading: Padding(
+            padding: const EdgeInsets.only(left: 12.0),
+            child: Image.asset(
+              'assets/images/solace_icon.png',
+              height: 28,
+              width: 28,
+              errorBuilder: (_, __, ___) => Icon(
+                Icons.emergency_rounded,
+                color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                size: 26,
+              ),
+            ),
           ),
-          iconTheme: IconThemeData(color: textPrimary),
+          title: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                'SOLACE RAPID DISPATCH',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: textPrimary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 14.5,
+                  letterSpacing: 1.0,
+                ),
+              ),
+              Text(
+                isTerminal ? 'Incident Summary' : 'Live Emergency Mission Desk',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: textSecondary,
+                  fontSize: 9.5,
+                  fontWeight: FontWeight.w500,
+                ),
+              ),
+            ],
+          ),
+          actions: [
+            Container(
+              margin: const EdgeInsets.only(right: 12),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF0D2559) : const Color(0xFFE0F2FE),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                  width: 0.8,
+                ),
+              ),
+              child: Text(
+                '#$_shortId',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                  fontSize: 11,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                ),
+              ),
+            ),
+          ],
         ),
         body: SafeArea(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 24),
             child: Column(
-              crossAxisAlignment: CrossAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const SizedBox(height: 20),
-                
-                // Animated Icon Circle
-                Stack(
-                  alignment: Alignment.center,
-                  children: [
-                    if (!isTerminal)
-                      AnimatedBuilder(
-                        animation: _radarController,
-                        builder: (_, __) {
-                          return Transform.scale(
-                            scale: _radarScale.value,
-                            child: Opacity(
-                              opacity: _radarOpacity.value,
+                // 1. BEACON / STATUS VISUAL
+                Center(
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      if (!isTerminal)
+                        AnimatedBuilder(
+                          animation: _radarController,
+                          builder: (context, child) {
+                            return Transform.scale(
+                              scale: _radarScale.value,
                               child: Container(
-                                width: 90,
-                                height: 90,
+                                width: 104,
+                                height: 104,
                                 decoration: BoxDecoration(
                                   shape: BoxShape.circle,
-                                  color: _statusColor.withOpacity(0.3),
+                                  color: (_canTrackLive
+                                          ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                                          : const Color(0xFFFF334B))
+                                      .withValues(alpha: _radarOpacity.value),
                                 ),
                               ),
+                            );
+                          },
+                        ),
+                      Container(
+                        width: 80,
+                        height: 80,
+                        decoration: BoxDecoration(
+                          shape: BoxShape.circle,
+                          color: isDark ? const Color(0xFF07193F) : Colors.white,
+                          border: Border.all(
+                            color: isTerminal
+                                ? (_isCompleted ? const Color(0xFF00E676) : Colors.redAccent)
+                                : (_canTrackLive
+                                    ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                                    : const Color(0xFFFF334B)),
+                            width: 2.5,
+                          ),
+                          boxShadow: [
+                            BoxShadow(
+                              color: (isDark ? const Color(0xFF00D4FF) : Colors.black12)
+                                  .withValues(alpha: 0.2),
+                              blurRadius: 14,
                             ),
-                          );
-                        },
+                          ],
+                        ),
+                        child: Icon(
+                          isTerminal
+                              ? (_isCompleted ? Icons.check_circle_rounded : Icons.cancel_outlined)
+                              : (_canTrackLive ? Icons.directions_car_rounded : Icons.sensors_rounded),
+                          size: 38,
+                          color: isTerminal
+                              ? (_isCompleted ? const Color(0xFF00E676) : Colors.redAccent)
+                              : (_canTrackLive
+                                  ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                                  : const Color(0xFFFF334B)),
+                        ),
                       ),
-                    Container(
-                      width: 90,
-                      height: 90,
-                      decoration: BoxDecoration(
-                        shape: BoxShape.circle,
-                        color: _statusColor.withOpacity(isDark ? 0.2 : 0.1),
-                        border: Border.all(color: _statusColor.withOpacity(0.5), width: 2),
-                      ),
-                      child: Icon(_statusIcon, size: 40, color: _statusColor),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-                
-                const SizedBox(height: 24),
+                const SizedBox(height: 14),
+
+                // Headline & Description (theme-aware, crystal clear!)
                 Text(
                   _headlineText,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: textPrimary, fontSize: 24, fontWeight: FontWeight.w900),
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w900,
+                    letterSpacing: 0.4,
+                  ),
                 ),
-                const SizedBox(height: 12),
+                const SizedBox(height: 4),
                 Text(
                   _descriptionText,
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: textMuted, fontSize: 14, height: 1.5),
-                ),
-                const SizedBox(height: 32),
-
-                // Main Details Card
-                Container(
-                  padding: const EdgeInsets.all(20),
-                  decoration: BoxDecoration(
-                    color: cardColor,
-                    borderRadius: BorderRadius.circular(16),
-                    boxShadow: isDark ? [] : [
-                      BoxShadow(color: Colors.black.withOpacity(0.04), blurRadius: 10, offset: const Offset(0, 4))
-                    ],
-                    border: isDark ? Border.all(color: AppTheme.darkCardBorder) : Border.all(color: Colors.grey.shade200),
+                  style: TextStyle(
+                    color: textMuted,
+                    fontSize: 12,
+                    height: 1.4,
                   ),
-                  child: Column(
-                    children: [
-                      _buildInfoRow('Request Reference', '#$_shortId', textPrimary, textMuted, isBold: true),
-                      const Divider(height: 24),
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Expanded(
-                            flex: 2,
-                            child: Text('Current Lifecycle State', style: TextStyle(color: textMuted, fontSize: 13)),
+                ),
+                const SizedBox(height: 18),
+
+                // TERMINAL BANNER (If completed or cancelled)
+                if (isTerminal) ...[
+                  Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: _isCompleted
+                          ? (isDark ? const Color(0xFF00E676).withValues(alpha: 0.15) : const Color(0xFFDCFCE7))
+                          : (isDark ? Colors.red.withValues(alpha: 0.15) : const Color(0xFFFEE2E2)),
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _isCompleted
+                            ? (isDark ? const Color(0xFF00E676) : const Color(0xFF16A34A))
+                            : (isDark ? Colors.redAccent : const Color(0xFFDC2626)),
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(
+                          _isCompleted ? 'Patient Safely Admitted' : 'Emergency Request Closed / Cancelled',
+                          style: TextStyle(
+                            color: _isCompleted
+                                ? (isDark ? const Color(0xFF00E676) : const Color(0xFF15803D))
+                                : (isDark ? Colors.redAccent : const Color(0xFF991B1B)),
+                            fontSize: 15,
+                            fontWeight: FontWeight.w900,
                           ),
-                          Expanded(
-                            flex: 3,
-                            child: Align(
-                              alignment: Alignment.centerRight,
-                              child: Container(
-                                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _isCompleted
+                              ? 'Emergency medical handover is complete. View full records and submit feedback in the History tab.'
+                              : 'This emergency dispatch request has been closed. Tap below to return to the SOS screen.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(color: textMuted, fontSize: 12, height: 1.35),
+                        ),
+                        const SizedBox(height: 14),
+                        FilledButton.icon(
+                          style: FilledButton.styleFrom(
+                            backgroundColor: _isCompleted
+                                ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                                : const Color(0xFFD32F2F),
+                            foregroundColor: isDark ? const Color(0xFF061536) : Colors.white,
+                            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                          ),
+                          onPressed: _returnHome,
+                          icon: const Icon(Icons.arrow_back_rounded, size: 18),
+                          label: Text(
+                            _isCompleted ? 'VIEW HISTORY & REVIEWS' : 'RETURN TO SOS DISPATCH',
+                            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ] else ...[
+                  // 2. SIMPLIFIED EMERGENCY STATUS CARD (Clean & Professional)
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: cardBorder),
+                      boxShadow: isDark
+                          ? []
+                          : [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.04),
+                                blurRadius: 10,
+                                offset: const Offset(0, 3),
+                              ),
+                            ],
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Text(
+                              'Request Reference',
+                              style: TextStyle(
+                                color: textMuted,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              '#$_shortId',
+                              style: TextStyle(
+                                color: textPrimary,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w800,
+                                fontFamily: 'monospace',
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            IconButton(
+                              icon: Icon(Icons.copy_rounded, size: 15, color: textSecondary),
+                              padding: EdgeInsets.zero,
+                              constraints: const BoxConstraints(),
+                              tooltip: 'Copy ID',
+                              onPressed: () {
+                                if (_requestId != null) {
+                                  Clipboard.setData(ClipboardData(text: _requestId!));
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('Request ID copied to clipboard'),
+                                      duration: Duration(seconds: 2),
+                                      behavior: SnackBarBehavior.floating,
+                                    ),
+                                  );
+                                }
+                              },
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 20),
+                        Row(
+                          children: [
+                            Text(
+                              'Current Lifecycle State',
+                              style: TextStyle(
+                                color: textMuted,
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                              decoration: BoxDecoration(
+                                color: (_isCompleted
+                                        ? const Color(0xFF00E676)
+                                        : (_canTrackLive
+                                            ? const Color(0xFF00D4FF)
+                                            : const Color(0xFFFFA000)))
+                                    .withValues(alpha: isDark ? 0.2 : 0.12),
+                                borderRadius: BorderRadius.circular(20),
+                                border: Border.all(
+                                  color: (_isCompleted
+                                          ? const Color(0xFF00E676)
+                                          : (_canTrackLive
+                                              ? const Color(0xFF00D4FF)
+                                              : const Color(0xFFFFA000)))
+                                      .withValues(alpha: isDark ? 0.5 : 0.4),
+                                ),
+                              ),
+                              child: Text(
+                                _currentStatus,
+                                style: TextStyle(
+                                  color: _isCompleted
+                                      ? const Color(0xFF00E676)
+                                      : (_canTrackLive
+                                          ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                                          : const Color(0xFFE65100)),
+                                  fontSize: 11.5,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const Divider(height: 20),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            SizedBox(
+                              width: 80,
+                              child: Text(
+                                'Location',
+                                style: TextStyle(
+                                  color: textMuted,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                widget.address ?? widget.patientAddress ?? 'Scene Location (GPS Locked)',
+                                textAlign: TextAlign.right,
+                                style: TextStyle(
+                                  color: textPrimary,
+                                  fontSize: 12.5,
+                                  fontWeight: FontWeight.w600,
+                                  height: 1.35,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 3. RESPONDING AMBULANCE DRIVER CARD
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _driverName != null
+                            ? (isDark ? const Color(0xFF00E676) : const Color(0xFF16A34A))
+                            : cardBorder,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(8),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFF00E676).withValues(alpha: 0.18),
+                                shape: BoxShape.circle,
+                              ),
+                              child: const Icon(Icons.directions_car_rounded, color: Color(0xFF00E676), size: 18),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    'ASSIGNED AMBULANCE RESPONDER',
+                                    style: TextStyle(
+                                      color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                                      fontSize: 9.5,
+                                      fontWeight: FontWeight.bold,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                  Text(
+                                    _driverName ?? 'Locating Closest Paramedic Team...',
+                                    style: TextStyle(
+                                      color: textPrimary,
+                                      fontSize: 13,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            if (_vehicleLabel != null)
+                              Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                                 decoration: BoxDecoration(
-                                  color: _statusColor.withOpacity(0.15),
-                                  borderRadius: BorderRadius.circular(12),
-                                  border: Border.all(color: _statusColor.withOpacity(0.3)),
+                                  color: innerChipBg,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(color: cardBorder),
                                 ),
                                 child: Text(
-                                  _currentStatus,
-                                  style: TextStyle(color: _statusColor, fontSize: 12, fontWeight: FontWeight.bold),
+                                  _vehicleLabel!,
+                                  style: TextStyle(
+                                    color: textPrimary,
+                                    fontSize: 10,
+                                    fontWeight: FontWeight.bold,
+                                  ),
                                 ),
+                              ),
+                          ],
+                        ),
+                        if (_canTrackLive) ...[
+                          const SizedBox(height: 12),
+                          SizedBox(
+                            width: double.infinity,
+                            height: 44,
+                            child: FilledButton.icon(
+                              style: FilledButton.styleFrom(
+                                backgroundColor: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                                foregroundColor: isDark ? const Color(0xFF061536) : Colors.white,
+                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              ),
+                              onPressed: _openLiveTracking,
+                              icon: const Icon(Icons.radar_rounded, size: 18),
+                              label: const Text(
+                                'TRACK AMBULANCE RADAR LIVE',
+                                style: TextStyle(fontWeight: FontWeight.w900, fontSize: 12, letterSpacing: 0.5),
                               ),
                             ),
                           ),
                         ],
-                      ),
-                      const Divider(height: 24),
-                      _buildInfoRow('Location', widget.address ?? widget.patientAddress ?? 'GPS Location verified', textPrimary, textMuted),
-                      
-                      if (_hospitalName != null) ...[
-                        const Divider(height: 24),
-                        _buildInfoRow('Receiving Hospital', _hospitalName!, textPrimary, textMuted, icon: Icons.local_hospital_rounded),
+                        if (_driverPhone != null && _driverPhone!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.all(10),
+                            decoration: BoxDecoration(
+                              color: innerChipBg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.3)),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.phone_in_talk_rounded, size: 16, color: Color(0xFF00E676)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _driverPhone!,
+                                    style: const TextStyle(
+                                      color: Color(0xFF00E676),
+                                      fontWeight: FontWeight.bold,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.call, size: 18, color: Color(0xFF00E676)),
+                                  tooltip: 'Call Driver',
+                                  onPressed: () => _callNumber(_driverPhone!),
+                                ),
+                                IconButton(
+                                  icon: const Icon(Icons.chat_bubble_rounded, size: 18, color: Color(0xFF25D366)),
+                                  tooltip: 'WhatsApp Driver',
+                                  onPressed: () => _openWhatsApp(_driverPhone!, 'Solace Emergency: Patient ready for pickup.'),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
-                      if (_driverName != null) ...[
-                        const Divider(height: 24),
-                        _buildInfoRow('Assigned Paramedic', '$_driverName $_vehicleLabel', textPrimary, textMuted, icon: Icons.directions_car_rounded),
-                      ],
-                    ],
+                    ),
                   ),
-                ),
-                
-                const SizedBox(height: 32),
+                  const SizedBox(height: 14),
 
-                // Map Button (if driver assigned)
-                if (!isTerminal && _driverName != null) ...[
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: const Color(0xFF0284C7),
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  // 4. RECEIVING HOSPITAL ER CARD
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(
+                        color: _hospitalName != null ? const Color(0xFF00ACC1) : cardBorder,
                       ),
-                      onPressed: _openLiveTracking,
-                      icon: const Icon(Icons.map_rounded),
-                      label: const Text('OPEN LIVE AMBULANCE MAP', style: TextStyle(fontWeight: FontWeight.w800)),
+                    ),
+                    child: Row(
+                      children: [
+                        Container(
+                          padding: const EdgeInsets.all(8),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFF00ACC1).withValues(alpha: 0.18),
+                            shape: BoxShape.circle,
+                          ),
+                          child: const Icon(Icons.local_hospital_rounded, color: Color(0xFF00ACC1), size: 18),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'RECEIVING HOSPITAL (TRIAGE IN PROGRESS)',
+                                style: TextStyle(
+                                  color: isDark ? const Color(0xFF80DEEA) : const Color(0xFF00838F),
+                                  fontSize: 9.5,
+                                  fontWeight: FontWeight.bold,
+                                  letterSpacing: 0.8,
+                                ),
+                              ),
+                              Text(
+                                _hospitalName ?? 'Matching Closest Verified Trauma Bay...',
+                                style: TextStyle(
+                                  color: textPrimary,
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.bold,
+                                ),
+                              ),
+                              if (_hospitalAddress != null)
+                                Text(
+                                  _hospitalAddress!,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: TextStyle(color: textMuted, fontSize: 11),
+                                ),
+                            ],
+                          ),
+                        ),
+                        if (_hospitalPhone != null && _hospitalPhone!.isNotEmpty)
+                          IconButton(
+                            icon: const Icon(Icons.phone_in_talk_rounded, color: Color(0xFF00ACC1), size: 18),
+                            tooltip: 'Call Hospital ER',
+                            onPressed: () => _callNumber(_hospitalPhone!),
+                          ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 5. QUICK FIRST AID CARD (Only shown when waiting for ambulance!)
+                  if (!_isCompleted && !_isCancelled)
+                  Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: cardBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Icon(Icons.medical_services_rounded, color: Color(0xFFFF334B), size: 18),
+                            const SizedBox(width: 8),
+                            Text(
+                              'QUICK FIRST AID (WHILE WAITING FOR AMBULANCE)',
+                              style: TextStyle(
+                                color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        _buildAidTip(
+                          icon: Icons.air_rounded,
+                          title: 'Airway & Recovery Position',
+                          body: 'Keep airway open. If breathing but unconscious, gently roll onto their side. Never leave face-down.',
+                          textPrimary: textPrimary,
+                          textMuted: textMuted,
+                        ),
+                        const Divider(height: 16, thickness: 0.7),
+                        _buildAidTip(
+                          icon: Icons.healing_rounded,
+                          title: 'Severe Bleeding Control',
+                          body: 'Press a clean cloth firmly directly over wound. Maintain continuous pressure with hands.',
+                          textPrimary: textPrimary,
+                          textMuted: textMuted,
+                        ),
+                        const Divider(height: 16, thickness: 0.7),
+                        _buildAidTip(
+                          icon: Icons.favorite_rounded,
+                          title: 'Chest Pain / Heart Distress',
+                          body: 'Keep patient resting seated or half-upright. Loosen collar. Prevent any physical walking.',
+                          textPrimary: textPrimary,
+                          textMuted: textMuted,
+                        ),
+                        const Divider(height: 16, thickness: 0.7),
+                        _buildAidTip(
+                          icon: Icons.warning_rounded,
+                          title: 'Crash / Spine Injury — Do Not Move',
+                          body: 'Do NOT move or drag an accident patient unless immediate fire or explosion hazard exists.',
+                          textPrimary: textPrimary,
+                          textMuted: textMuted,
+                        ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // 6. CANCEL BUTTON
+                  if (_canClientCancel)
+                    SizedBox(
+                      width: double.infinity,
+                      height: 44,
+                      child: OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.redAccent,
+                          side: const BorderSide(color: Colors.redAccent),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                        ),
+                        onPressed: _isCancelling ? null : _confirmAndCancelRequest,
+                        icon: _isCancelling
+                            ? const SizedBox(
+                                width: 16,
+                                height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.redAccent),
+                              )
+                            : const Icon(Icons.cancel_outlined, size: 18),
+                        label: Text(
+                          _isCancelling ? 'CANCELLING REQUEST...' : 'CANCEL EMERGENCY REQUEST',
+                          style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                        ),
+                      ),
+                    ),
                 ],
-
-                // Cancel Button
-                if (!isTerminal)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: OutlinedButton.icon(
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.redAccent,
-                        side: BorderSide(color: Colors.redAccent.withOpacity(0.3)),
-                        backgroundColor: Colors.red.withOpacity(isDark ? 0.1 : 0.05),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: _isCancelling ? null : _cancelRequest,
-                      icon: _isCancelling 
-                        ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.redAccent))
-                        : const Icon(Icons.close_rounded),
-                      label: Text(_isCancelling ? 'CANCELLING...' : 'Cancel Emergency Request', style: const TextStyle(fontWeight: FontWeight.bold)),
-                    ),
-                  ),
-
-                if (isTerminal)
-                  SizedBox(
-                    width: double.infinity,
-                    height: 52,
-                    child: FilledButton.icon(
-                      style: FilledButton.styleFrom(
-                        backgroundColor: AppTheme.darkPrimary,
-                        foregroundColor: Colors.white,
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-                      ),
-                      onPressed: _returnHome,
-                      icon: const Icon(Icons.home_rounded),
-                      label: const Text('RETURN TO HOME', style: TextStyle(fontWeight: FontWeight.w800)),
-                    ),
-                  ),
-                  
-                const SizedBox(height: 32),
               ],
             ),
           ),
@@ -458,33 +1187,39 @@ class _SubmittedScreenState extends State<SubmittedScreen> with SingleTickerProv
     );
   }
 
-  Widget _buildInfoRow(String label, String value, Color textPrimary, Color textMuted, {bool isBold = false, IconData? icon}) {
+  Widget _buildAidTip({
+    required IconData icon,
+    required String title,
+    required String body,
+    required Color textPrimary,
+    required Color textMuted,
+  }) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Icon(icon, color: const Color(0xFF00D4FF), size: 16),
+        const SizedBox(width: 8),
         Expanded(
-          flex: 2,
-          child: Text(label, style: TextStyle(color: textMuted, fontSize: 13)),
-        ),
-        Expanded(
-          flex: 3,
-          child: Row(
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisAlignment: MainAxisAlignment.end,
             children: [
-              if (icon != null) ...[
-                Icon(icon, size: 14, color: textMuted),
-                const SizedBox(width: 4),
-              ],
-              Expanded(
-                child: Text(
-                  value.replaceAll('', ''), // Just stripping any stray backticks safely
-                  textAlign: TextAlign.right,
-                  style: TextStyle(
-                    color: textPrimary, 
-                    fontSize: 13, 
-                    fontWeight: isBold ? FontWeight.w800 : FontWeight.w600,
-                  ),
+              Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  color: textPrimary,
+                  fontSize: 11.5,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 1),
+              Text(
+                body,
+                style: TextStyle(
+                  color: textMuted,
+                  fontSize: 10.5,
+                  height: 1.35,
                 ),
               ),
             ],
@@ -494,3 +1229,5 @@ class _SubmittedScreenState extends State<SubmittedScreen> with SingleTickerProv
     );
   }
 }
+
+
