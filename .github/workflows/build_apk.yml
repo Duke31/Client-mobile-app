@@ -65,42 +65,41 @@ jobs:
 
       - name: Add location permissions and intent queries
         run: |
-          python3 -c '
-from pathlib import Path
-p = Path("android/app/src/main/AndroidManifest.xml")
-text = p.read_text()
-if "ACCESS_FINE_LOCATION" not in text:
-    perms = """
-    <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
-    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <uses-permission android:name="android.permission.CALL_PHONE" />
-"""
-    i = text.find(">")
-    text = text[:i+1] + perms + text[i+1:]
-if "<queries>" not in text:
-    q = """
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.DIAL" />
-            <data android:scheme="tel" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SENDTO" />
-            <data android:scheme="sms" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" />
-        </intent>
-    </queries>
-"""
-    end_tag = text.rfind("</manifest>")
-    if end_tag != -1:
-        text = text[:end_tag] + q + text[end_tag:]
-p.write_text(text)
-print("Updated AndroidManifest.xml successfully!")
-'
+          python3 - <<'PY'
+          from pathlib import Path
+          p = Path("android/app/src/main/AndroidManifest.xml")
+          text = p.read_text()
+          if "ACCESS_FINE_LOCATION" not in text:
+              insert = (
+                  "\n    <uses-permission android:name=\"android.permission.INTERNET\" />"
+                  "\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />"
+                  "\n    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />"
+                  "\n    <uses-permission android:name=\"android.permission.CALL_PHONE\" />"
+              )
+              i = text.find(">")
+              text = text[: i + 1] + insert + text[i + 1 :]
+          if "<queries>" not in text:
+              q = (
+                  "\n    <queries>"
+                  "\n        <intent>"
+                  "\n            <action android:name=\"android.intent.action.DIAL\" />"
+                  "\n            <data android:scheme=\"tel\" />"
+                  "\n        </intent>"
+                  "\n        <intent>"
+                  "\n            <action android:name=\"android.intent.action.SENDTO\" />"
+                  "\n            <data android:scheme=\"sms\" />"
+                  "\n        </intent>"
+                  "\n        <intent>"
+                  "\n            <action android:name=\"android.intent.action.VIEW\" />"
+                  "\n            <data android:scheme=\"https\" />"
+                  "\n        </intent>"
+                  "\n    </queries>"
+              )
+              end_tag = text.rfind("</manifest>")
+              if end_tag != -1:
+                  text = text[:end_tag] + q + "\n" + text[end_tag:]
+          p.write_text(text)
+          PY
 
       - name: Build Release APK
         run: flutter build apk --release --dart-define-from-file=config.json
