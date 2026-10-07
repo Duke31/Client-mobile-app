@@ -81,7 +81,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
             'hospital:hospitals(name, address), '
             'driver:drivers(display_name, full_name, vehicle_label, phone, phone_number)',
           )
-          .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+          .eq('client_user_id', uid)
           // Only terminal statuses belong in history
           .or(
             'status.eq.Completed,'
@@ -110,7 +110,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               'patient_lng, created_at, client_user_id, contact_phone, '
               'hospital_id, driver_id, notes, priority',
             )
-            .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+            .eq('client_user_id', uid)
             .or(
               'status.eq.Completed,'
               'status.eq.completed,'
