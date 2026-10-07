@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../services/client_request_detail.dart';
 import 'package:http/http.dart' as http;
 
 class LiveAmbulanceTrackingScreen extends StatefulWidget {
@@ -226,6 +227,49 @@ class _LiveAmbulanceTrackingScreenState
 
   // 2. Poller fallback
   Future<void> _pollDriverLocation() async {
+    // Prefer SECURITY DEFINER detail (driver coords + phone) when table RLS blocks
+    final reqKey = _resolvedRequestId ?? widget.requestId;
+    if (reqKey.isNotEmpty) {
+      final detail = await ClientRequestDetail.fetch(_supabase, reqKey);
+      if (detail != null) {
+        final d = detail['driver'];
+        if (d is Map) {
+          final lat = (d['current_lat'] as num?)?.toDouble();
+          final lng = (d['current_lng'] as num?)?.toDouble();
+          final name = d['display_name']?.toString();
+          final vehicle = d['vehicle_label']?.toString();
+          final phone = d['phone']?.toString();
+          final did = detail['driver_id']?.toString() ?? d['id']?.toString();
+          if (did != null && did.isNotEmpty) _driverId = did;
+          if (name != null || vehicle != null) {
+            if (mounted) {
+              setState(() {
+                if (name != null && name.isNotEmpty) _driverName = name;
+                if (vehicle != null && vehicle.isNotEmpty) _vehicleLabel = vehicle;
+              });
+            }
+          }
+          if (lat != null && lng != null) {
+            _applyNewDriverPosition(
+              newPos: LatLng(lat, lng),
+              heading: (d['heading'] as num?)?.toDouble(),
+              speedMps: (d['speed'] as num?)?.toDouble(),
+              driverName: name,
+              vehicleLabel: vehicle,
+            );
+            return;
+          }
+        }
+        final st = detail['status']?.toString();
+        if (st != null && mounted) {
+          setState(() {
+            // surface cancelled on map chrome if field exists
+          });
+        }
+      }
+    }
+
+
     final rid = _resolvedRequestId ?? widget.requestId;
     if (_driverId == null || _driverId!.isEmpty) {
       await _loadData();
