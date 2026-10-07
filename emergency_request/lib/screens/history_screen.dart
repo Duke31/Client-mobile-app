@@ -70,68 +70,48 @@ class _HistoryScreenState extends State<HistoryScreen> {
     }
 
     try {
-      // ── Fetch ONLY completed/cancelled requests for the History tab ───────
-      // Active/pending requests belong in the Live Tracker tab, not here.
-      final res = await _supabase
-          .from('emergency_requests')
-          .select(
-            'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
-            'created_at, client_user_id, contact_phone, hospital_id, driver_id, '
-            'notes, priority, '
-            'hospital:hospitals(name, address), '
-            'driver:drivers(display_name, full_name, vehicle_label, phone, phone_number)',
-          )
-          .eq('client_user_id', uid)
-          // Only terminal statuses belong in history
-          .or(
-            'status.eq.Completed,'
-            'status.eq.completed,'
-            'status.eq.Cancelled / failed,'
-            'status.eq.cancelled,'
-            'status.eq.Canceled,'
-            'status.eq.Failed',
-          )
-          .order('created_at', ascending: false)
-          .limit(50);
+      List<dynamic> res = [];
+      try {
+        res = await _supabase
+            .from('emergency_requests')
+            .select(
+              'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
+              'created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority',
+            )
+            .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+            .order('created_at', ascending: false)
+            .limit(50);
+      } catch (_) {
+        res = await _supabase
+            .from('emergency_requests')
+            .select(
+              'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
+              'created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority',
+            )
+            .eq('client_user_id', uid)
+            .order('created_at', ascending: false)
+            .limit(50);
+      }
+
+      final closed = <Map<String, dynamic>>[];
+      for (final row in List<Map<String, dynamic>>.from(res)) {
+        final st = (row['status']?.toString() ?? '').toLowerCase();
+        if (st.contains('completed') ||
+            st.contains('cancel') ||
+            st.contains('failed')) {
+          closed.add(row);
+        }
+      }
 
       if (mounted) {
         setState(() {
-          _history = List<Map<String, dynamic>>.from(res);
+          _history = closed;
           _loading = false;
         });
       }
     } catch (e) {
-      // Resilient fallback without foreign joins
-      try {
-        final res = await _supabase
-            .from('emergency_requests')
-            .select(
-              'id, status, emergency_type, patient_address, patient_lat, '
-              'patient_lng, created_at, client_user_id, contact_phone, '
-              'hospital_id, driver_id, notes, priority',
-            )
-          .eq('client_user_id', uid)
-            .or(
-              'status.eq.Completed,'
-              'status.eq.completed,'
-              'status.eq.Cancelled / failed,'
-              'status.eq.cancelled,'
-              'status.eq.Canceled,'
-              'status.eq.Failed',
-            )
-            .order('created_at', ascending: false)
-            .limit(50);
-
-        if (mounted) {
-          setState(() {
-            _history = List<Map<String, dynamic>>.from(res);
-            _loading = false;
-          });
-        }
-      } catch (e2) {
-        debugPrint('History fallback error: $e2');
-        if (mounted) setState(() => _loading = false);
-      }
+      debugPrint('History fetch error: $e');
+      if (mounted) setState(() => _loading = false);
     }
   }
 
