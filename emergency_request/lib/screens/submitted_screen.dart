@@ -416,6 +416,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
           requestId: id,
           patientLatitude: widget.latitude,
           patientLongitude: widget.longitude,
+          
           patientAddress: widget.address ?? widget.patientAddress ?? 'Scene Location',
         ),
       ),
