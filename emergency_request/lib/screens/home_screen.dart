@@ -151,12 +151,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final pages = [
       // 0: SOS Screen
       RequestScreen(
-        onEmergencyCreated: (requestId, address) {
+        onEmergencyCreated: (requestId, address, [lat, lng]) {
           HapticFeedback.heavyImpact();
           setState(() {
             _activeEmergency = {
               'id': requestId,
               'patient_address': address,
+              'patient_lat': lat,
+              'patient_lng': lng,
               'status': 'Pending dispatch',
               'created_at': DateTime.now().toIso8601String(),
             };
@@ -385,4 +387,5 @@ class _NoActiveMissionView extends StatelessWidget {
     );
   }
 }
+
 
