@@ -64,7 +64,7 @@ jobs:
             cp -R emergency_request/assets/* assets/ || true
           fi
 
-      - name: Add location permissions
+      - name: Add location permissions and intent queries
         run: |
           python3 - <<'PY'
           from pathlib import Path
@@ -72,15 +72,54 @@ jobs:
           text = p.read_text()
           if "ACCESS_FINE_LOCATION" not in text:
               insert = (
-                  "\n    <uses-permission android:name=\"android.permission.INTERNET\" />"
-                  "\n    <uses-permission android:name=\"android.permission.ACCESS_FINE_LOCATION\" />"
-                  "\n    <uses-permission android:name=\"android.permission.ACCESS_COARSE_LOCATION\" />"
+                  "
+    <uses-permission android:name="android.permission.INTERNET" />"
+                  "
+    <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />"
+                  "
+    <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />"
+                  "
+    <uses-permission android:name="android.permission.CALL_PHONE" />"
               )
               i = text.find(">")
               text = text[: i + 1] + insert + text[i + 1 :]
-              p.write_text(text)
+          if "<queries>" not in text:
+              queries = (
+                  "
+    <queries>"
+                  "
+        <intent>"
+                  "
+            <action android:name="android.intent.action.DIAL" />"
+                  "
+            <data android:scheme="tel" />"
+                  "
+        </intent>"
+                  "
+        <intent>"
+                  "
+            <action android:name="android.intent.action.SENDTO" />"
+                  "
+            <data android:scheme="sms" />"
+                  "
+        </intent>"
+                  "
+        <intent>"
+                  "
+            <action android:name="android.intent.action.VIEW" />"
+                  "
+            <data android:scheme="https" />"
+                  "
+        </intent>"
+                  "
+    </queries>"
+              )
+              end_manifest = text.rfind("</manifest>")
+              if end_manifest != -1:
+                  text = text[:end_manifest] + queries + "
+" + text[end_manifest:]
+          p.write_text(text)
           PY
-
       - name: Build Release APK
         run: flutter build apk --release --dart-define-from-file=config.json
 
