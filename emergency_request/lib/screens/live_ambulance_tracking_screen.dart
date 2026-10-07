@@ -27,6 +27,8 @@ class LiveAmbulanceTrackingScreen extends StatefulWidget {
 }
 
 class _LiveAmbulanceTrackingScreenState
+  LatLng get _effectivePatientLocation => _dynamicPatientLocation ?? ((_effectivePatientLocation.latitude != 0 || _effectivePatientLocation.longitude != 0) ? _effectivePatientLocation : (_targetPos ?? const LatLng(8.1333, 4.2500)));
+
     extends State<LiveAmbulanceTrackingScreen>
     with SingleTickerProviderStateMixin {
   final MapController _mapController = MapController();
@@ -46,6 +48,7 @@ class _LiveAmbulanceTrackingScreenState
 
   LatLng? _previousPos;
   LatLng? _targetPos;
+  LatLng? _dynamicPatientLocation;
   double _vehicleHeading = 0.0;
 
   late AnimationController _animController;
@@ -70,13 +73,13 @@ class _LiveAmbulanceTrackingScreenState
     );
 
     _latAnimation = Tween<double>(
-      begin: widget.patientLocation.latitude,
-      end: widget.patientLocation.latitude,
+      begin: _effectivePatientLocation.latitude,
+      end: _effectivePatientLocation.latitude,
     ).animate(_animController);
 
     _lngAnimation = Tween<double>(
-      begin: widget.patientLocation.longitude,
-      end: widget.patientLocation.longitude,
+      begin: _effectivePatientLocation.longitude,
+      end: _effectivePatientLocation.longitude,
     ).animate(_animController);
 
     _headingAnimation = Tween<double>(begin: 0, end: 0).animate(_animController);
@@ -110,7 +113,7 @@ class _LiveAmbulanceTrackingScreenState
       if (_resolvedRequestId != null && _resolvedRequestId!.isNotEmpty) {
         req = await _supabase
             .from('emergency_requests')
-            .select('id, status, driver_id')
+            .select('id, status, driver_id, patient_lat, patient_lng, patient_address')
             .eq('id', _resolvedRequestId!)
             .maybeSingle();
       }
@@ -121,7 +124,7 @@ class _LiveAmbulanceTrackingScreenState
           (_resolvedRequestId == null || _resolvedRequestId!.isEmpty)) {
         final activeList = await _supabase
             .from('emergency_requests')
-            .select('id, status, driver_id')
+            .select('id, status, driver_id, patient_lat, patient_lng, patient_address')
             .not('driver_id', 'is', null)
             .order('created_at', ascending: false)
             .limit(1);
@@ -133,6 +136,11 @@ class _LiveAmbulanceTrackingScreenState
       }
 
       if (req != null && mounted) {
+                final plat = (req['patient_lat'] as num?)?.toDouble();
+        final plng = (req['patient_lng'] as num?)?.toDouble();
+        if (plat != null && plng != null && (plat != 0 || plng != 0)) {
+          _dynamicPatientLocation = LatLng(plat, plng);
+        }
         final status = req['status']?.toString() ?? "Driver Assigned";
         final driverId = req['driver_id']?.toString();
 
@@ -485,7 +493,7 @@ class _LiveAmbulanceTrackingScreenState
     if (!_hasFittedBounds) {
       _hasFittedBounds = true;
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        _fitMapBounds(newPos, widget.patientLocation);
+        _fitMapBounds(newPos, _effectivePatientLocation);
       });
     }
 
@@ -514,7 +522,7 @@ class _LiveAmbulanceTrackingScreenState
         final url = Uri.parse(
           'https://api.mapbox.com/directions/v5/mapbox/driving/'
           '${driverPos.longitude},${driverPos.latitude};'
-          '${widget.patientLocation.longitude},${widget.patientLocation.latitude}'
+          '${_effectivePatientLocation.longitude},${_effectivePatientLocation.latitude}'
           '?geometries=geojson&overview=full&access_token=${widget.mapboxAccessToken}',
         );
 
@@ -546,7 +554,7 @@ class _LiveAmbulanceTrackingScreenState
 
     // Fallback: Haversine distance with 35 km/h urban speed
     const Distance distance = Distance();
-    final meters = distance.as(LengthUnit.Meter, driverPos, widget.patientLocation);
+    final meters = distance.as(LengthUnit.Meter, driverPos, _effectivePatientLocation);
     final km = meters / 1000;
     final minutes = ((km / 35.0) * 60).ceil().clamp(1, 120);
 
@@ -554,7 +562,7 @@ class _LiveAmbulanceTrackingScreenState
       setState(() {
         _distanceKm = km;
         _etaMinutes = minutes;
-        _routePoints = [driverPos, widget.patientLocation];
+        _routePoints = [driverPos, _effectivePatientLocation];
       });
     }
   }
@@ -570,10 +578,10 @@ class _LiveAmbulanceTrackingScreenState
             builder: (context, child) {
               final currentLat = _targetPos != null && _animController.isAnimating
                   ? _latAnimation.value
-                  : _targetPos?.latitude ?? widget.patientLocation.latitude;
+                  : _targetPos?.latitude ?? _effectivePatientLocation.latitude;
               final currentLng = _targetPos != null && _animController.isAnimating
                   ? _lngAnimation.value
-                  : _targetPos?.longitude ?? widget.patientLocation.longitude;
+                  : _targetPos?.longitude ?? _effectivePatientLocation.longitude;
               final animatedHeading = _animController.isAnimating
                   ? _headingAnimation.value
                   : _vehicleHeading;
@@ -583,7 +591,7 @@ class _LiveAmbulanceTrackingScreenState
               return FlutterMap(
                 mapController: _mapController,
                 options: MapOptions(
-                  initialCenter: widget.patientLocation,
+                  initialCenter: _effectivePatientLocation,
                   initialZoom: 15.0,
                 ),
                 children: [
@@ -610,7 +618,7 @@ class _LiveAmbulanceTrackingScreenState
                     markers: [
                       // Patient Destination Pin
                       Marker(
-                        point: widget.patientLocation,
+                        point: _effectivePatientLocation,
                         width: 50,
                         height: 50,
                         child: const Icon(
@@ -838,7 +846,7 @@ class _LiveAmbulanceTrackingScreenState
                         IconButton(
                           icon: const Icon(Icons.my_location_rounded, color: Color(0xFF2563EB)),
                           onPressed: () {
-                            _fitMapBounds(_targetPos!, widget.patientLocation);
+                            _fitMapBounds(_targetPos!, _effectivePatientLocation);
                           },
                           tooltip: "Re-center",
                         ),
