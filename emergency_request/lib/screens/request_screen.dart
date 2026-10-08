@@ -1239,9 +1239,6 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
 
   @override
   Widget build(BuildContext context) {
-    if (_activeMission == null && _submitting) {
-      _submitting = false;
-    }
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
