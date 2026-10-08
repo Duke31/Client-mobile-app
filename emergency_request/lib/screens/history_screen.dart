@@ -1,8 +1,72 @@
 import 'dart:async';
+import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:http/http.dart' as http;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+
+class PatientReviewData {
+  final int rating;
+  final String remark;
+  final List<String> tags;
+  final String? submittedAt;
+
+  const PatientReviewData({
+    required this.rating,
+    required this.remark,
+    this.tags = const [],
+    this.submittedAt,
+  });
+}
+
+PatientReviewData? parseReviewFromNotes(String? notes) {
+  if (notes == null || notes.isEmpty) return null;
+
+  // Matches [PATIENT REVIEW ★★★★★ (5/5)]: remark | TAGS: ...
+  // or [PATIENT FEEDBACK: 5★ | Tags: ... | Note: ...]
+  final starMatch = RegExp(
+    r'PATIENT (?:REVIEW|FEEDBACK|RATING)[^:]*:\s*([1-5])(?:\/5)?(?:★|\s*stars?)?',
+    caseSensitive: false,
+  ).firstMatch(notes) ?? RegExp(r'([1-5])★').firstMatch(notes);
+
+  if (starMatch == null) return null;
+  final rating = int.tryParse(starMatch.group(1) ?? '5') ?? 5;
+
+  String remark = '';
+  final remarkMatch = RegExp(
+    r'\[PATIENT REVIEW [^:]+:\s*([^|\]]+)',
+    caseSensitive: false,
+  ).firstMatch(notes) ?? RegExp(
+    r'(?:REMARK|Note):\s*([^|\]\n\r]+)',
+    caseSensitive: false,
+  ).firstMatch(notes);
+
+  if (remarkMatch != null) {
+    remark = remarkMatch.group(1)?.trim() ?? '';
+  }
+
+  final tags = <String>[];
+  final tagsMatch = RegExp(
+    r'(?:Tags|TAGS):\s*([^|\]\n\r]+)',
+    caseSensitive: false,
+  ).firstMatch(notes);
+
+  if (tagsMatch != null) {
+    for (final t in (tagsMatch.group(1) ?? '').split(',')) {
+      final tr = t.trim();
+      if (tr.isNotEmpty && tr.toLowerCase() != 'none') {
+        tags.add(tr);
+      }
+    }
+  }
+
+  return PatientReviewData(
+    rating: rating,
+    remark: remark.isNotEmpty ? remark : 'Emergency service completed.',
+    tags: tags,
+  );
+}
 
 class HistoryScreen extends StatefulWidget {
   final VoidCallback? onSwitchToSos;
@@ -16,20 +80,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
   bool _loading = true;
   List<Map<String, dynamic>> _history = [];
-  final Map<String, int> _ratedRequests = {};
-
-  // ── Real-time subscription for completed/cancelled cases ─────────────────
+  final Map<String, PatientReviewData> _reviews = {};
   StreamSubscription<List<Map<String, dynamic>>>? _realtimeSub;
-
-  // Only statuses that belong in History (terminal states)
-  static const List<String> _terminalStatuses = [
-    'Completed',
-    'completed',
-    'Cancelled / failed',
-    'cancelled',
-    'Canceled',
-    'Failed',
-  ];
 
   @override
   void initState() {
@@ -44,8 +96,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
     super.dispose();
   }
 
-  /// Subscribe to real-time changes on emergency_requests so the list
-  /// updates automatically when a case is resolved/completed.
   void _subscribeRealtime() {
     final uid = _supabase.auth.currentUser?.id;
     if (uid == null) return;
@@ -54,7 +104,6 @@ class _HistoryScreenState extends State<HistoryScreen> {
           .from('emergency_requests')
           .stream(primaryKey: ['id'])
           .listen((_) {
-            // Re-fetch whenever any row changes for this user
             _fetchHistory();
           }, onError: (_) {});
     } catch (_) {}
@@ -76,7 +125,8 @@ class _HistoryScreenState extends State<HistoryScreen> {
             .from('emergency_requests')
             .select(
               'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
-              'created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority',
+              'created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority, '
+              'hospital:hospitals(name, address), driver:drivers(display_name, full_name, vehicle_label)',
             )
             .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
             .order('created_at', ascending: false)
@@ -88,24 +138,33 @@ class _HistoryScreenState extends State<HistoryScreen> {
               'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
               'created_at, client_user_id, contact_phone, hospital_id, driver_id, notes, priority',
             )
-            .eq('client_user_id', uid)
+            .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
             .order('created_at', ascending: false)
             .limit(50);
       }
 
       final closed = <Map<String, dynamic>>[];
+      final Map<String, PatientReviewData> parsedReviews = {};
+
       for (final row in List<Map<String, dynamic>>.from(res)) {
         final st = (row['status']?.toString() ?? '').toLowerCase();
         if (st.contains('completed') ||
             st.contains('cancel') ||
             st.contains('failed')) {
           closed.add(row);
+          final notes = row['notes']?.toString();
+          final rId = row['id']?.toString() ?? '';
+          final review = parseReviewFromNotes(notes);
+          if (review != null && rId.isNotEmpty) {
+            parsedReviews[rId] = review;
+          }
         }
       }
 
       if (mounted) {
         setState(() {
           _history = closed;
+          _reviews.addAll(parsedReviews);
           _loading = false;
         });
       }
@@ -118,7 +177,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
   void _openMissionArchiveDetail(Map<String, dynamic> req) {
     HapticFeedback.lightImpact();
     final reqId = req['id']?.toString() ?? '';
-    final existingRating = _ratedRequests[reqId] ?? 5;
+    final existingReview = _reviews[reqId];
 
     showModalBottomSheet<void>(
       context: context,
@@ -126,29 +185,54 @@ class _HistoryScreenState extends State<HistoryScreen> {
       backgroundColor: Colors.transparent,
       builder: (ctx) => _ArchivedMissionDetailSheet(
         request: req,
-        initialRating: existingRating,
-        onRatingUpdated: (rating, tags, comment) async {
+        existingReview: existingReview,
+        onRatingUpdated: (rating, remark, tags) async {
+          final reviewObj = PatientReviewData(
+            rating: rating,
+            remark: remark,
+            tags: tags,
+            submittedAt: DateTime.now().toIso8601String(),
+          );
+
           setState(() {
-            _ratedRequests[reqId] = rating;
+            _reviews[reqId] = reviewObj;
           });
 
+          // 1. Save to Supabase emergency_requests.notes
           try {
             final oldNotes = req['notes']?.toString() ?? '';
-            final feedbackPayload =
-                '[PATIENT FEEDBACK: $rating★ | Tags: ${tags.join(', ')} | Note: $comment]';
-            final newNotes = oldNotes.isNotEmpty
-                ? '$oldNotes\n$feedbackPayload'
-                : feedbackPayload;
-            await _supabase
-                .from('emergency_requests')
-                .update({'notes': newNotes}).eq('id', reqId);
+            final cleanNotes = oldNotes
+                .replaceAll(RegExp(r'\[PATIENT (?:REVIEW|FEEDBACK|RATING)[^\]]*\]', caseSensitive: false), '')
+                .trim();
+            final dateStr = DateTime.now().toString().split('.').first;
+            final payload =
+                '[PATIENT REVIEW ${'★' * rating}${'☆' * (5 - rating)} ($rating/5)]: $remark | TAGS: ${tags.join(', ')} | SUBMITTED: $dateStr]';
+            final newNotes = cleanNotes.isNotEmpty ? '$cleanNotes\n$payload' : payload;
+
+            await _supabase.from('emergency_requests').update({'notes': newNotes}).eq('id', reqId);
+          } catch (err) {
+            debugPrint('Supabase note update notice: $err');
+          }
+
+          // 2. Also send to Ops Dashboard /api/reviews for guaranteed Dispatcher audit
+          try {
+            final url = Uri.parse('https://ops-dashboard-eta-ten.vercel.app/api/reviews');
+            await http.post(
+              url,
+              headers: {'Content-Type': 'application/json'},
+              body: jsonEncode({
+                'requestId': reqId,
+                'rating': rating,
+                'remark': remark,
+                'tags': tags,
+              }),
+            );
           } catch (_) {}
 
           if (mounted) {
             ScaffoldMessenger.of(context).showSnackBar(
               const SnackBar(
-                content: Text(
-                    'Thank you! Your feedback helps optimise our emergency dispatch fleet.'),
+                content: Text('Thank you! Your rating and remarks have been logged for dispatch review.'),
                 backgroundColor: Color(0xFF00E676),
                 behavior: SnackBarBehavior.floating,
               ),
@@ -181,16 +265,11 @@ class _HistoryScreenState extends State<HistoryScreen> {
 
     final bgColor = isDark ? AppTheme.darkBg : AppTheme.lightBg;
     final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final cardBorder =
-        isDark ? AppTheme.darkCardBorder : AppTheme.lightCardBorder;
-    final textPrimary =
-        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textSecondary =
-        isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
-    final textMuted =
-        isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
-    final primaryColor =
-        isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
+    final cardBorder = isDark ? AppTheme.darkCardBorder : AppTheme.lightCardBorder;
+    final textPrimary = isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
+    final textSecondary = isDark ? AppTheme.darkTextSecondary : AppTheme.lightTextSecondary;
+    final textMuted = isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
+    final primaryColor = isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -212,7 +291,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
               ),
             ),
             Text(
-              'Closed Case Archive & Patient Service Reviews',
+              'Past Emergency Cases & Patient Service Reviews',
               style: TextStyle(
                 color: textSecondary,
                 fontSize: 9.5,
@@ -254,8 +333,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                     decoration: BoxDecoration(
                                       color: cardColor,
                                       shape: BoxShape.circle,
-                                      border: Border.all(
-                                          color: cardBorder, width: 1.5),
+                                      border: Border.all(color: cardBorder, width: 1.5),
                                     ),
                                     child: Icon(
                                       Icons.history_toggle_off_rounded,
@@ -265,7 +343,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   ),
                                   const SizedBox(height: 16),
                                   Text(
-                                    'No Closed Cases Yet',
+                                    'No Emergency History',
                                     style: TextStyle(
                                       color: textPrimary,
                                       fontSize: 17,
@@ -274,7 +352,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   ),
                                   const SizedBox(height: 6),
                                   Text(
-                                    'Completed and closed emergency dispatch cases will appear here for your review.',
+                                    'Your previous emergency dispatch cases and patient feedback will appear here.',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(
                                       color: textMuted,
@@ -285,23 +363,16 @@ class _HistoryScreenState extends State<HistoryScreen> {
                                   const SizedBox(height: 24),
                                   FilledButton.icon(
                                     style: FilledButton.styleFrom(
-                                      backgroundColor:
-                                          AppTheme.darkAccent,
+                                      backgroundColor: const Color(0xFFD32F2F),
                                       foregroundColor: Colors.white,
-                                      padding: const EdgeInsets.symmetric(
-                                          horizontal: 22, vertical: 12),
-                                      shape: RoundedRectangleBorder(
-                                          borderRadius:
-                                              BorderRadius.circular(12)),
+                                      padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                                     ),
                                     onPressed: widget.onSwitchToSos,
-                                    icon: const Icon(
-                                        Icons.emergency_rounded,
-                                        size: 18),
+                                    icon: const Icon(Icons.emergency_rounded, size: 18),
                                     label: const Text(
                                       'Go to Emergency SOS',
-                                      style: TextStyle(
-                                          fontWeight: FontWeight.bold),
+                                      style: TextStyle(fontWeight: FontWeight.bold),
                                     ),
                                   ),
                                 ],
@@ -342,46 +413,38 @@ class _HistoryScreenState extends State<HistoryScreen> {
     required Color textMuted,
   }) {
     final reqId = req['id']?.toString() ?? '';
-    final shortId =
-        reqId.length > 8 ? reqId.substring(0, 8).toUpperCase() : reqId;
-    final status = req['status']?.toString() ?? 'Completed';
+    final shortId = reqId.length > 8 ? reqId.substring(0, 8).toUpperCase() : reqId;
+    final status = req['status']?.toString() ?? 'Closed';
     final isCompleted = status.toLowerCase().contains('complete');
-    final isCancelled = status.toLowerCase().contains('cancel') ||
-        status.toLowerCase().contains('fail');
+    final isCancelled = status.toLowerCase().contains('cancel') || status.toLowerCase().contains('fail');
     final emergencyType = req['emergency_type']?.toString() ?? 'Emergency';
-    final address =
-        req['patient_address']?.toString() ?? 'GPS Location Verified';
+    final address = req['patient_address']?.toString() ?? 'GPS Location Verified';
     final dateStr = _formatDate(req['created_at']?.toString());
 
+    // Responders extraction
     String? hospitalName;
     if (req['hospital'] is Map) {
       hospitalName = req['hospital']['name']?.toString();
     }
-
     String? driverName;
     String? vehicleLabel;
     if (req['driver'] is Map) {
-      driverName = req['driver']['display_name']?.toString() ??
-          req['driver']['full_name']?.toString();
+      driverName = req['driver']['display_name']?.toString() ?? req['driver']['full_name']?.toString();
       vehicleLabel = req['driver']['vehicle_label']?.toString();
     }
 
-    final currentRating = _ratedRequests[reqId];
+    final review = _reviews[reqId];
 
     return Container(
-      margin: const EdgeInsets.only(bottom: 12),
+      margin: const EdgeInsets.only(bottom: 14),
       decoration: BoxDecoration(
         color: cardColor,
         borderRadius: BorderRadius.circular(16),
         border: Border.all(
           color: isCompleted
-              ? (isDark
-                  ? const Color(0xFF00E676).withValues(alpha: 0.4)
-                  : const Color(0xFF86EFAC))
+              ? (isDark ? const Color(0xFF00E676).withValues(alpha: 0.4) : const Color(0xFF86EFAC))
               : (isCancelled
-                  ? (isDark
-                      ? Colors.red.withValues(alpha: 0.3)
-                      : const Color(0xFFFECACA))
+                  ? (isDark ? Colors.red.withValues(alpha: 0.3) : const Color(0xFFFECACA))
                   : cardBorder),
           width: 1.0,
         ),
@@ -399,28 +462,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
         color: Colors.transparent,
         child: InkWell(
           borderRadius: BorderRadius.circular(16),
-          // Only show review sheet for completed cases
-          onTap: isCompleted
-              ? () => _openMissionArchiveDetail(req)
-              : null,
+          onTap: () => _openMissionArchiveDetail(req),
           child: Padding(
             padding: const EdgeInsets.all(14),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── Top row: Type chip, Date, Status Badge ────────────────
+                // Top row: Type chip, Date, Status Badge
                 Row(
                   children: [
                     Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 8, vertical: 4),
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                       decoration: BoxDecoration(
-                        color: const Color(0xFFFF334B)
-                            .withValues(alpha: isDark ? 0.15 : 0.1),
+                        color: const Color(0xFFFF334B).withValues(alpha: isDark ? 0.15 : 0.1),
                         borderRadius: BorderRadius.circular(8),
                         border: Border.all(
-                          color: const Color(0xFFFF334B)
-                              .withValues(alpha: isDark ? 0.4 : 0.3),
+                          color: const Color(0xFFFF334B).withValues(alpha: isDark ? 0.4 : 0.3),
                           width: 0.8,
                         ),
                       ),
@@ -447,26 +504,58 @@ class _HistoryScreenState extends State<HistoryScreen> {
                         ),
                       ),
                     ),
-                    _StatusBadge(
-                      isCompleted: isCompleted,
-                      isCancelled: isCancelled,
-                      status: status,
-                      isDark: isDark,
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                      decoration: BoxDecoration(
+                        color: isCompleted
+                            ? (isDark ? const Color(0xFF00E676).withValues(alpha: 0.15) : const Color(0xFFDCFCE7))
+                            : (isCancelled
+                                ? (isDark ? Colors.red.withValues(alpha: 0.15) : const Color(0xFFFEE2E2))
+                                : (isDark ? const Color(0xFF00D4FF).withValues(alpha: 0.15) : const Color(0xFFE0F2FE))),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Icon(
+                            isCompleted
+                                ? Icons.check_circle_rounded
+                                : (isCancelled ? Icons.cancel_outlined : Icons.sync_rounded),
+                            size: 12,
+                            color: isCompleted
+                                ? (isDark ? const Color(0xFF00E676) : const Color(0xFF15803D))
+                                : (isCancelled
+                                    ? (isDark ? Colors.redAccent : const Color(0xFF991B1B))
+                                    : (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0369A1))),
+                          ),
+                          const SizedBox(width: 4),
+                          Text(
+                            isCompleted ? 'COMPLETED' : (isCancelled ? 'CANCELLED' : status),
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w900,
+                              color: isCompleted
+                                  ? (isDark ? const Color(0xFF00E676) : const Color(0xFF15803D))
+                                  : (isCancelled
+                                      ? (isDark ? Colors.redAccent : const Color(0xFF991B1B))
+                                      : (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0369A1))),
+                            ),
+                          ),
+                        ],
+                      ),
                     ),
                   ],
                 ),
                 const SizedBox(height: 10),
 
-                // ── Location ──────────────────────────────────────────────
+                // Location line
                 Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Icon(
                       Icons.location_on_rounded,
                       size: 15,
-                      color: isDark
-                          ? AppTheme.darkPrimary
-                          : AppTheme.lightPrimary,
+                      color: isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary,
                     ),
                     const SizedBox(width: 6),
                     Expanded(
@@ -486,18 +575,14 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 const SizedBox(height: 8),
 
-                // ── Hospital & Driver row ──────────────────────────────────
+                // Responders involved
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
-                    color: isDark
-                        ? const Color(0xFF0D2559)
-                        : const Color(0xFFF8FAFC),
+                    color: isDark ? const Color(0xFF0D2559) : const Color(0xFFF8FAFC),
                     borderRadius: BorderRadius.circular(10),
                     border: Border.all(
-                      color: isDark
-                          ? const Color(0xFF1E3A8A)
-                          : const Color(0xFFE2E8F0),
+                      color: isDark ? const Color(0xFF1E3A8A) : const Color(0xFFE2E8F0),
                     ),
                   ),
                   child: Row(
@@ -505,8 +590,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       Expanded(
                         child: Row(
                           children: [
-                            const Icon(Icons.local_hospital_rounded,
-                                size: 14, color: Color(0xFF00ACC1)),
+                            const Icon(Icons.local_hospital_rounded, size: 14, color: Color(0xFF00ACC1)),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
@@ -526,22 +610,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       Container(
                         height: 16,
                         width: 1,
-                        color: isDark
-                            ? Colors.white12
-                            : const Color(0xFFCBD5E1),
-                        margin:
-                            const EdgeInsets.symmetric(horizontal: 8),
+                        color: isDark ? Colors.white12 : const Color(0xFFCBD5E1),
+                        margin: const EdgeInsets.symmetric(horizontal: 8),
                       ),
                       Expanded(
                         child: Row(
                           children: [
-                            const Icon(Icons.directions_car_rounded,
-                                size: 14, color: Color(0xFF00E676)),
+                            const Icon(Icons.directions_car_rounded, size: 14, color: Color(0xFF00E676)),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                driverName ??
-                                    (vehicleLabel ?? 'Solace Unit'),
+                                driverName ?? (vehicleLabel ?? 'Solace Unit'),
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -559,7 +638,118 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 ),
                 const SizedBox(height: 10),
 
-                // ── Bottom: Ref ID + Rating (completed only) ──────────────
+                // ── DEDICATED RATING & REMARK SECTION ──────────────────
+                if (review != null) ...[
+                  Container(
+                    margin: const EdgeInsets.only(top: 2, bottom: 8),
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: isDark
+                          ? const Color(0xFF0A1E46)
+                          : const Color(0xFFFEF9C3).withValues(alpha: 0.4),
+                      borderRadius: BorderRadius.circular(10),
+                      border: Border.all(
+                        color: isDark
+                            ? const Color(0xFFF59E0B).withValues(alpha: 0.35)
+                            : const Color(0xFFFDE047),
+                        width: 1.0,
+                      ),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Row(
+                              children: List.generate(
+                                5,
+                                (i) => Icon(
+                                  Icons.star_rounded,
+                                  size: 15,
+                                  color: i < review.rating
+                                      ? Colors.amber
+                                      : (isDark ? Colors.white24 : Colors.grey.shade300),
+                                ),
+                              ),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              '${review.rating}.0 / 5.0',
+                              style: const TextStyle(
+                                color: Colors.amber,
+                                fontSize: 11,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            const Spacer(),
+                            InkWell(
+                              onTap: () => _openMissionArchiveDetail(req),
+                              child: Row(
+                                children: [
+                                  Icon(
+                                    Icons.edit_note_rounded,
+                                    size: 14,
+                                    color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                                  ),
+                                  const SizedBox(width: 2),
+                                  Text(
+                                    'Edit Remark',
+                                    style: TextStyle(
+                                      color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                                      fontSize: 10,
+                                      fontWeight: FontWeight.bold,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
+                        if (review.remark.isNotEmpty) ...[
+                          const SizedBox(height: 5),
+                          Text(
+                            '“${review.remark}”',
+                            style: TextStyle(
+                              color: textPrimary,
+                              fontSize: 11.5,
+                              fontStyle: FontStyle.italic,
+                              height: 1.3,
+                            ),
+                          ),
+                        ],
+                        if (review.tags.isNotEmpty) ...[
+                          const SizedBox(height: 6),
+                          Wrap(
+                            spacing: 4,
+                            runSpacing: 4,
+                            children: review.tags.map((t) {
+                              return Container(
+                                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                                decoration: BoxDecoration(
+                                  color: isDark ? const Color(0xFF0D2559) : Colors.white,
+                                  borderRadius: BorderRadius.circular(6),
+                                  border: Border.all(
+                                    color: isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1),
+                                  ),
+                                ),
+                                child: Text(
+                                  '✓ $t',
+                                  style: TextStyle(
+                                    fontSize: 9.5,
+                                    fontWeight: FontWeight.bold,
+                                    color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ],
+                      ],
+                    ),
+                  ),
+                ],
+
+                // Ref ID + Action Trigger
                 Row(
                   children: [
                     Text(
@@ -572,74 +762,25 @@ class _HistoryScreenState extends State<HistoryScreen> {
                       ),
                     ),
                     const Spacer(),
-                    // Rating UI only for completed cases — never for active/pending
-                    if (isCompleted) ...[
-                      if (currentRating != null) ...[
-                        Row(
-                          children: List.generate(
-                            5,
-                            (i) => Icon(
-                              Icons.star_rounded,
-                              size: 16,
-                              color: i < currentRating
-                                  ? Colors.amber
-                                  : (isDark
-                                      ? Colors.white24
-                                      : Colors.grey.shade300),
-                            ),
+                    if (review == null)
+                      OutlinedButton.icon(
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary,
+                          side: BorderSide(
+                            color: isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary,
+                            width: 0.9,
                           ),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+                          visualDensity: VisualDensity.compact,
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
-                        const SizedBox(width: 6),
-                        Text(
-                          'Rated $currentRating★',
-                          style: const TextStyle(
-                            color: Colors.amber,
-                            fontSize: 11,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ] else ...[
-                        OutlinedButton.icon(
-                          style: OutlinedButton.styleFrom(
-                            foregroundColor: isDark
-                                ? AppTheme.darkPrimary
-                                : AppTheme.lightPrimary,
-                            side: BorderSide(
-                              color: isDark
-                                  ? AppTheme.darkPrimary
-                                  : AppTheme.lightPrimary,
-                              width: 0.9,
-                            ),
-                            padding: const EdgeInsets.symmetric(
-                                horizontal: 10, vertical: 5),
-                            visualDensity: VisualDensity.compact,
-                            shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8)),
-                          ),
-                          onPressed: () => _openMissionArchiveDetail(req),
-                          icon: const Icon(Icons.star_outline_rounded,
-                              size: 14),
-                          label: const Text(
-                            'RATE & REVIEW',
-                            style: TextStyle(
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w900,
-                                letterSpacing: 0.5),
-                          ),
-                        ),
-                      ],
-                    ] else ...[
-                      // Cancelled case — no rating prompt
-                      Text(
-                        isCancelled ? 'CLOSED' : status.toUpperCase(),
-                        style: TextStyle(
-                          color: textMuted,
-                          fontSize: 10,
-                          fontWeight: FontWeight.w700,
-                          letterSpacing: 0.3,
+                        onPressed: () => _openMissionArchiveDetail(req),
+                        icon: const Icon(Icons.star_outline_rounded, size: 14),
+                        label: const Text(
+                          '★ ADD RATING & REMARK',
+                          style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.w900, letterSpacing: 0.4),
                         ),
                       ),
-                    ],
                   ],
                 ),
               ],
@@ -651,102 +792,29 @@ class _HistoryScreenState extends State<HistoryScreen> {
   }
 }
 
-// ── Status Badge widget ────────────────────────────────────────────────────
-class _StatusBadge extends StatelessWidget {
-  final bool isCompleted;
-  final bool isCancelled;
-  final String status;
-  final bool isDark;
-
-  const _StatusBadge({
-    required this.isCompleted,
-    required this.isCancelled,
-    required this.status,
-    required this.isDark,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final Color bgColor;
-    final Color fgColor;
-    final IconData icon;
-    final String label;
-
-    if (isCompleted) {
-      bgColor = isDark
-          ? const Color(0xFF00E676).withValues(alpha: 0.15)
-          : const Color(0xFFDCFCE7);
-      fgColor = isDark ? const Color(0xFF00E676) : const Color(0xFF15803D);
-      icon = Icons.check_circle_rounded;
-      label = 'COMPLETED';
-    } else if (isCancelled) {
-      bgColor = isDark
-          ? Colors.red.withValues(alpha: 0.15)
-          : const Color(0xFFFEE2E2);
-      fgColor = isDark ? Colors.redAccent : const Color(0xFF991B1B);
-      icon = Icons.cancel_outlined;
-      label = 'CANCELLED';
-    } else {
-      bgColor = isDark
-          ? const Color(0xFF00D4FF).withValues(alpha: 0.15)
-          : const Color(0xFFE0F2FE);
-      fgColor =
-          isDark ? const Color(0xFF00D4FF) : const Color(0xFF0369A1);
-      icon = Icons.sync_rounded;
-      label = status.toUpperCase();
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-      decoration: BoxDecoration(
-        color: bgColor,
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 12, color: fgColor),
-          const SizedBox(width: 4),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 9.5,
-              fontWeight: FontWeight.w900,
-              color: fgColor,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 // ---------------------------------------------------------------------------
-// ARCHIVED MISSION DETAIL & PATIENT FEEDBACK REPORT
-// Strictly for completed cases only. No live-vibes, no tips, no radar.
+// ARCHIVED MISSION DETAIL & PATIENT REMARK SHEET
+// Clean archival case report with star rating and remark text input
 // ---------------------------------------------------------------------------
 class _ArchivedMissionDetailSheet extends StatefulWidget {
   final Map<String, dynamic> request;
-  final int initialRating;
-  final Function(int rating, List<String> tags, String comment)
-      onRatingUpdated;
+  final PatientReviewData? existingReview;
+  final Function(int rating, String remark, List<String> tags) onRatingUpdated;
 
   const _ArchivedMissionDetailSheet({
     required this.request,
-    required this.initialRating,
+    this.existingReview,
     required this.onRatingUpdated,
   });
 
   @override
-  State<_ArchivedMissionDetailSheet> createState() =>
-      _ArchivedMissionDetailSheetState();
+  State<_ArchivedMissionDetailSheet> createState() => _ArchivedMissionDetailSheetState();
 }
 
-class _ArchivedMissionDetailSheetState
-    extends State<_ArchivedMissionDetailSheet> {
+class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet> {
   late int _rating;
-  final List<String> _selectedTags = [];
-  final TextEditingController _commentController = TextEditingController();
+  late final List<String> _selectedTags;
+  late final TextEditingController _remarkController;
 
   static const List<String> _availableTags = [
     'Fast Arrival',
@@ -754,18 +822,21 @@ class _ArchivedMissionDetailSheetState
     'Expert Paramedics',
     'Clean Vehicle',
     'Smooth ER Handover',
-    'Clear Phone Routing',
+    'Clear Communications',
+    'Empathetic Care',
   ];
 
   @override
   void initState() {
     super.initState();
-    _rating = widget.initialRating;
+    _rating = widget.existingReview?.rating ?? 5;
+    _selectedTags = List<String>.from(widget.existingReview?.tags ?? []);
+    _remarkController = TextEditingController(text: widget.existingReview?.remark ?? '');
   }
 
   @override
   void dispose() {
-    _commentController.dispose();
+    _remarkController.dispose();
     super.dispose();
   }
 
@@ -783,53 +854,43 @@ class _ArchivedMissionDetailSheetState
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final cardBorder =
-        isDark ? AppTheme.darkCardBorder : AppTheme.lightCardBorder;
-    final textPrimary =
-        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textMuted =
-        isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
-    final inputBg = isDark
-        ? const Color(0xFF0D2559)
-        : const Color(0xFFF8FAFC);
-    final primaryColor =
-        isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
+    final cardColor = isDark ? const Color(0xFF07193F) : Colors.white;
+    final cardBorder = isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1);
+    final textPrimary = isDark ? Colors.white : const Color(0xFF0F172A);
+    final textMuted = isDark ? Colors.white60 : const Color(0xFF64748B);
+    final inputBg = isDark ? const Color(0xFF0D2559) : const Color(0xFFF8FAFC);
 
     final req = widget.request;
     final reqId = req['id']?.toString() ?? '';
-    final shortId =
-        reqId.length > 8 ? reqId.substring(0, 8).toUpperCase() : reqId;
-    final status = req['status']?.toString() ?? 'Completed';
+    final shortId = reqId.length > 8 ? reqId.substring(0, 8).toUpperCase() : reqId;
+    final status = req['status']?.toString() ?? 'Closed';
     final isCompleted = status.toLowerCase().contains('complete');
+    final isCancelled = status.toLowerCase().contains('cancel') || status.toLowerCase().contains('fail');
     final emergencyType = req['emergency_type']?.toString() ?? 'Emergency';
-    final address =
-        req['patient_address']?.toString() ?? 'GPS Location Verified';
+    final address = req['patient_address']?.toString() ?? 'GPS Location Verified';
 
     String? hospitalName;
-    String? hospitalAddress;
     if (req['hospital'] is Map) {
       hospitalName = req['hospital']['name']?.toString();
-      hospitalAddress = req['hospital']['address']?.toString();
     }
-
     String? driverName;
     String? vehicleLabel;
     if (req['driver'] is Map) {
-      driverName = req['driver']['display_name']?.toString() ??
-          req['driver']['full_name']?.toString();
+      driverName = req['driver']['display_name']?.toString() ?? req['driver']['full_name']?.toString();
       vehicleLabel = req['driver']['vehicle_label']?.toString();
     }
 
     return Padding(
-      padding:
-          EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
+      padding: EdgeInsets.only(bottom: MediaQuery.of(context).viewInsets.bottom),
       child: Container(
         decoration: BoxDecoration(
           color: cardColor,
           borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
           border: Border(
-            top: BorderSide(color: primaryColor, width: 1.8),
+            top: BorderSide(
+              color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+              width: 1.8,
+            ),
           ),
         ),
         padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
@@ -851,7 +912,7 @@ class _ArchivedMissionDetailSheetState
               ),
               const SizedBox(height: 14),
 
-              // ── Archive Header ────────────────────────────────────────────
+              // Archive Header
               Row(
                 children: [
                   Container(
@@ -863,12 +924,8 @@ class _ArchivedMissionDetailSheetState
                       shape: BoxShape.circle,
                     ),
                     child: Icon(
-                      isCompleted
-                          ? Icons.check_circle_rounded
-                          : Icons.folder_shared_rounded,
-                      color: isCompleted
-                          ? const Color(0xFF00E676)
-                          : const Color(0xFFFF334B),
+                      isCompleted ? Icons.check_circle_rounded : Icons.folder_shared_rounded,
+                      color: isCompleted ? const Color(0xFF00E676) : const Color(0xFFFF334B),
                       size: 22,
                     ),
                   ),
@@ -878,7 +935,7 @@ class _ArchivedMissionDetailSheetState
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text(
-                          'MISSION ARCHIVE REPORT',
+                          'MISSION ARCHIVE & REMARKS',
                           style: TextStyle(
                             color: textPrimary,
                             fontWeight: FontWeight.w900,
@@ -899,251 +956,185 @@ class _ArchivedMissionDetailSheetState
                   ),
                 ],
               ),
-              const SizedBox(height: 16),
+              const SizedBox(height: 14),
 
-              // ── Case Outcome Card ─────────────────────────────────────────
+              // Case Summary
               Container(
-                padding: const EdgeInsets.all(14),
+                padding: const EdgeInsets.all(12),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? const Color(0xFF0D2559)
-                      : const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(14),
+                  color: isDark ? const Color(0xFF0D2559) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: cardBorder),
                 ),
                 child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        Icon(
-                          isCompleted
-                              ? Icons.verified_rounded
-                              : Icons.info_outline_rounded,
-                          size: 16,
-                          color: isCompleted
-                              ? const Color(0xFF00E676)
-                              : Colors.redAccent,
-                        ),
-                        const SizedBox(width: 6),
-                        Text(
-                          isCompleted
-                              ? 'DISPATCH COMPLETED'
-                              : 'DISPATCH CLOSED / CANCELLED',
-                          style: TextStyle(
-                            color: isCompleted
-                                ? const Color(0xFF00E676)
-                                : Colors.redAccent,
-                            fontWeight: FontWeight.w900,
-                            fontSize: 12,
-                            letterSpacing: 0.5,
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 10),
-                    _buildArchiveRow(
-                        'Pickup Location:', address, textPrimary, textMuted),
+                    _buildArchiveRow('Pickup Location:', address, textPrimary, textMuted),
                     const SizedBox(height: 6),
-                    _buildArchiveRow(
-                        'Receiving Hospital:',
-                        hospitalName ?? 'Regional ER Center',
-                        textPrimary,
-                        textMuted),
-                    if (hospitalAddress != null) ...[
-                      const SizedBox(height: 2),
-                      Padding(
-                        padding: const EdgeInsets.only(left: 12),
-                        child: Text(hospitalAddress,
-                            style:
-                                TextStyle(fontSize: 11, color: textMuted)),
-                      ),
-                    ],
+                    _buildArchiveRow('Hospital ER:', hospitalName ?? 'Regional ER Center', textPrimary, textMuted),
                     const SizedBox(height: 6),
-                    _buildArchiveRow(
-                        'Assigned Responder:',
-                        '${driverName ?? "Paramedic Unit"} (${vehicleLabel ?? "Solace Unit"})',
-                        textPrimary,
-                        textMuted),
+                    _buildArchiveRow('Ambulance Crew:', '${driverName ?? "Paramedic Unit"} (${vehicleLabel ?? "Solace Unit"})', textPrimary, textMuted),
                   ],
                 ),
               ),
-              const SizedBox(height: 18),
+              const SizedBox(height: 16),
 
-              // ── Rating & Review (completed cases only) ────────────────────
-              if (isCompleted) ...[
-                Text(
-                  'PATIENT SERVICE REVIEW',
-                  style: TextStyle(
-                    color: textPrimary,
-                    fontWeight: FontWeight.w900,
-                    fontSize: 12,
-                    letterSpacing: 0.8,
-                  ),
+              // RATING SECTION
+              Text(
+                'RATE DISPATCH & EMS EXPERIENCE',
+                style: TextStyle(
+                  color: textPrimary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                  letterSpacing: 0.8,
                 ),
-                const SizedBox(height: 4),
-                Text(
-                  'Rate your dispatch experience to help improve our emergency fleet.',
-                  style: TextStyle(color: textMuted, fontSize: 11),
-                ),
-                const SizedBox(height: 12),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'Tap stars to score the response speed and medical bedside care.',
+                style: TextStyle(color: textMuted, fontSize: 11),
+              ),
+              const SizedBox(height: 10),
 
-                // 5-star row
-                Center(
-                  child: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: List.generate(5, (index) {
-                      final starNum = index + 1;
-                      return IconButton(
-                        iconSize: 34,
-                        padding:
-                            const EdgeInsets.symmetric(horizontal: 3),
-                        onPressed: () {
-                          HapticFeedback.selectionClick();
-                          setState(() => _rating = starNum);
-                        },
-                        icon: Icon(
-                          starNum <= _rating
-                              ? Icons.star_rounded
-                              : Icons.star_border_rounded,
-                          color: Colors.amber,
-                        ),
-                      );
-                    }),
-                  ),
-                ),
-                Center(
-                  child: Text(
-                    _rating == 5
-                        ? 'Exceptional & Lifesaving'
-                        : (_rating == 4
-                            ? 'Very Professional & Fast'
-                            : (_rating == 3
-                                ? 'Standard Response'
-                                : 'Needs Improvement')),
-                    style: const TextStyle(
+              // 5 Stars row
+              Center(
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: List.generate(5, (index) {
+                    final starNum = index + 1;
+                    return IconButton(
+                      iconSize: 34,
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _rating = starNum);
+                      },
+                      icon: Icon(
+                        starNum <= _rating ? Icons.star_rounded : Icons.star_border_rounded,
                         color: Colors.amber,
-                        fontWeight: FontWeight.bold,
-                        fontSize: 12.5),
-                  ),
-                ),
-                const SizedBox(height: 14),
-
-                // Experience tags
-                Wrap(
-                  spacing: 8,
-                  runSpacing: 8,
-                  children: _availableTags.map((tag) {
-                    final isSelected = _selectedTags.contains(tag);
-                    return FilterChip(
-                      label: Text(
-                        tag,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.bold,
-                          color: isSelected
-                              ? (isDark
-                                  ? AppTheme.darkBg
-                                  : Colors.white)
-                              : (isDark
-                                  ? Colors.white70
-                                  : AppTheme.lightTextSecondary),
-                        ),
                       ),
-                      selected: isSelected,
-                      selectedColor: primaryColor,
-                      backgroundColor: isDark
-                          ? const Color(0xFF0D2559)
-                          : const Color(0xFFF1F5F9),
-                      side: BorderSide(
-                        color: isSelected
-                            ? Colors.transparent
-                            : cardBorder,
-                      ),
-                      onSelected: (_) => _toggleTag(tag),
                     );
-                  }).toList(),
+                  }),
                 ),
-                const SizedBox(height: 14),
+              ),
+              Center(
+                child: Text(
+                  _rating == 5
+                      ? '5.0 ★ Exceptional & Lifesaving'
+                      : (_rating == 4
+                          ? '4.0 ★ Very Professional & Fast'
+                          : (_rating == 3
+                              ? '3.0 ★ Standard Response'
+                              : (_rating == 2 ? '2.0 ★ Needs Dispatch Follow-up' : '1.0 ★ Critical Concern'))),
+                  style: const TextStyle(color: Colors.amber, fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+              const SizedBox(height: 16),
 
-                // Comment box
-                TextField(
-                  controller: _commentController,
-                  maxLines: 2,
-                  style: TextStyle(color: textPrimary, fontSize: 13),
-                  cursorColor: primaryColor,
-                  decoration: InputDecoration(
-                    hintText:
-                        'Optional note on paramedic conduct or triage...',
-                    hintStyle:
-                        TextStyle(color: textMuted, fontSize: 11.5),
-                    filled: true,
-                    fillColor: inputBg,
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: cardBorder),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide: BorderSide(color: cardBorder),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(12),
-                      borderSide:
-                          BorderSide(color: primaryColor, width: 1.8),
-                    ),
-                    contentPadding: const EdgeInsets.all(12),
-                  ),
+              // PATIENT REMARK TEXT FIELD
+              Text(
+                'YOUR REMARK & FEEDBACK',
+                style: TextStyle(
+                  color: textPrimary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 12,
+                  letterSpacing: 0.8,
                 ),
-                const SizedBox(height: 18),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                'This remark is audited by Solace Emergency Dispatchers and Admins.',
+                style: TextStyle(color: textMuted, fontSize: 11),
+              ),
+              const SizedBox(height: 8),
 
-                // Submit
-                SizedBox(
-                  height: 46,
-                  child: FilledButton.icon(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: primaryColor,
-                      foregroundColor:
-                          isDark ? AppTheme.darkBg : Colors.white,
-                      shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(12)),
-                    ),
-                    onPressed: () {
-                      widget.onRatingUpdated(
-                        _rating,
-                        _selectedTags,
-                        _commentController.text.trim(),
-                      );
-                      Navigator.of(context).pop();
-                    },
-                    icon: const Icon(Icons.check_rounded, size: 18),
-                    label: const Text(
-                      'SUBMIT EXPERIENCE REVIEW',
-                      style: TextStyle(
-                          fontWeight: FontWeight.w900,
-                          fontSize: 12.5,
-                          letterSpacing: 0.5),
-                    ),
-                  ),
-                ),
-              ] else ...[
-                // Cancelled — simple note, no review prompts
-                Container(
-                  padding: const EdgeInsets.all(12),
-                  decoration: BoxDecoration(
-                    color: Colors.red.withValues(alpha: 0.08),
+              TextField(
+                controller: _remarkController,
+                maxLines: 3,
+                style: TextStyle(color: textPrimary, fontSize: 13),
+                decoration: InputDecoration(
+                  hintText: 'Enter your remarks regarding the ambulance arrival time, paramedic care, or hospital intake...',
+                  hintStyle: TextStyle(color: textMuted, fontSize: 11.5),
+                  filled: true,
+                  fillColor: inputBg,
+                  border: OutlineInputBorder(
                     borderRadius: BorderRadius.circular(12),
-                    border: Border.all(
-                        color: Colors.redAccent.withValues(alpha: 0.3)),
+                    borderSide: BorderSide(color: cardBorder),
                   ),
-                  child: Text(
-                    'This dispatch was cancelled or closed without completion. '
-                    'No service review is required.',
-                    style:
-                        TextStyle(color: textMuted, fontSize: 12, height: 1.4),
+                  enabledBorder: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(12),
+                    borderSide: BorderSide(color: cardBorder),
+                  ),
+                  contentPadding: const EdgeInsets.all(12),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Experience Tags
+              Text(
+                'SERVICE HIGHLIGHTS (OPTIONAL)',
+                style: TextStyle(
+                  color: textPrimary,
+                  fontWeight: FontWeight.w900,
+                  fontSize: 11,
+                  letterSpacing: 0.6,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Wrap(
+                spacing: 8,
+                runSpacing: 8,
+                children: _availableTags.map((tag) {
+                  final isSelected = _selectedTags.contains(tag);
+                  return FilterChip(
+                    label: Text(
+                      tag,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: isSelected
+                            ? (isDark ? const Color(0xFF061536) : Colors.white)
+                            : (isDark ? Colors.white70 : const Color(0xFF334155)),
+                      ),
+                    ),
+                    selected: isSelected,
+                    selectedColor: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                    backgroundColor: isDark ? const Color(0xFF0D2559) : const Color(0xFFF1F5F9),
+                    side: BorderSide(
+                      color: isSelected
+                          ? Colors.transparent
+                          : (isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1)),
+                    ),
+                    onSelected: (_) => _toggleTag(tag),
+                  );
+                }).toList(),
+              ),
+              const SizedBox(height: 20),
+
+              // SUBMIT BUTTON
+              SizedBox(
+                height: 48,
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                    foregroundColor: isDark ? const Color(0xFF061536) : Colors.white,
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                  ),
+                  onPressed: () {
+                    HapticFeedback.mediumImpact();
+                    widget.onRatingUpdated(
+                      _rating,
+                      _remarkController.text.trim(),
+                      _selectedTags,
+                    );
+                    Navigator.of(context).pop();
+                  },
+                  icon: const Icon(Icons.check_circle_rounded, size: 18),
+                  label: const Text(
+                    'SUBMIT RATING & REMARK',
+                    style: TextStyle(fontWeight: FontWeight.w900, fontSize: 13, letterSpacing: 0.5),
                   ),
                 ),
-              ],
+              ),
             ],
           ),
         ),
@@ -1151,30 +1142,21 @@ class _ArchivedMissionDetailSheetState
     );
   }
 
-  Widget _buildArchiveRow(
-      String label, String value, Color textPrimary, Color textMuted) {
+  Widget _buildArchiveRow(String label, String value, Color textPrimary, Color textMuted) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          width: 120,
-          child: Text(label,
-              style: TextStyle(
-                  color: textMuted,
-                  fontSize: 11.5,
-                  fontWeight: FontWeight.w500)),
+          width: 110,
+          child: Text(label, style: TextStyle(color: textMuted, fontSize: 11, fontWeight: FontWeight.w500)),
         ),
         Expanded(
           child: Text(
             value,
-            style: TextStyle(
-                color: textPrimary,
-                fontSize: 11.5,
-                fontWeight: FontWeight.bold),
+            style: TextStyle(color: textPrimary, fontSize: 11, fontWeight: FontWeight.bold),
           ),
         ),
       ],
     );
   }
 }
-

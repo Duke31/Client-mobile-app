@@ -673,9 +673,8 @@ class _RequestScreenState extends State<RequestScreen>
                       latitude: _fix?.latitude ?? kDefaultCenter.latitude,
                       longitude: _fix?.longitude ?? kDefaultCenter.longitude,
                       zoom: 16.5,
-                      interactive: true,
+                      interactive: false,
                       mapController: _mapController,
-                      onTap: _onMapTap,
                     ),
 
                     // Live GPS Accuracy Tag (Top Left)
@@ -795,12 +794,20 @@ class _RequestScreenState extends State<RequestScreen>
                                         ),
                                       ),
                                       Spacer(),
-                                      Text(
-                                        'Tap map to fine-tune pin',
-                                        style: TextStyle(
-                                          color: Colors.white38,
-                                          fontSize: 9,
-                                        ),
+                                      Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: const [
+                                          Icon(Icons.lock_rounded, size: 10, color: Color(0xFF00E676)),
+                                          SizedBox(width: 3),
+                                          Text(
+                                            'GPS Locked to Location',
+                                            style: TextStyle(
+                                              color: Color(0xFF00E676),
+                                              fontSize: 9,
+                                              fontWeight: FontWeight.w600,
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ],
                                   ),
