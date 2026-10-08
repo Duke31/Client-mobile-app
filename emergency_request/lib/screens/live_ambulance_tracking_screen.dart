@@ -268,8 +268,8 @@ class _LiveAmbulanceTrackingScreenState
           if (lat != null && lng != null) {
             _applyNewDriverPosition(
               newPos: LatLng(lat, lng),
-              heading: (d['heading'] as num?)?.toDouble(),
-              speedMps: (d['speed'] as num?)?.toDouble(),
+              heading: (d['heading'] as num?)?.toDouble() ?? 0.0,
+              speedMps: (d['speed'] as num?)?.toDouble() ?? 0.0,
               driverName: name,
               vehicleLabel: vehicle,
             );
