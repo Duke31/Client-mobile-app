@@ -384,7 +384,23 @@ class _SubmittedScreenState extends State<SubmittedScreen>
       vLabel = driver['vehicle_label']?.toString() ?? vLabel;
       dPhone = driver['phone']?.toString() ??
           driver['phone_number']?.toString() ??
+          driver['contact_phone']?.toString() ??
           dPhone;
+    }
+    final reqDriverId = req['driver_id']?.toString();
+    if (reqDriverId != null && reqDriverId.isNotEmpty && (dPhone == null || dPhone.isEmpty)) {
+      try {
+        final dRow = await _supabase
+            .from('drivers')
+            .select('id, display_name, vehicle_label, phone')
+            .eq('id', reqDriverId)
+            .maybeSingle();
+        if (dRow != null) {
+          dName = dRow['display_name']?.toString() ?? dName;
+          vLabel = dRow['vehicle_label']?.toString() ?? vLabel;
+          dPhone = dRow['phone']?.toString() ?? dPhone;
+        }
+      } catch (_) {}
     }
 
     if (!mounted) return;
@@ -1228,7 +1244,106 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                             ),
                           ),
                         ],
-                        // Driver card phone number interaction removed as requested
+                        // Interactive Driver Card: allows patient or bystander to call assigned driver
+                        if (_driverPhone != null && _driverPhone!.isNotEmpty) ...[
+                          const SizedBox(height: 12),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: innerChipBg,
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: const Color(0xFF00E676).withValues(alpha: 0.35),
+                              ),
+                            ),
+                            child: Row(
+                              children: [
+                                Container(
+                                  padding: const EdgeInsets.all(8),
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF00E676).withValues(alpha: 0.2),
+                                    shape: BoxShape.circle,
+                                  ),
+                                  child: const Icon(
+                                    Icons.phone_in_talk_rounded,
+                                    size: 16,
+                                    color: Color(0xFF00E676),
+                                  ),
+                                ),
+                                const SizedBox(width: 10),
+                                Expanded(
+                                  child: InkWell(
+                                    onTap: () => _callNumber(_driverPhone!),
+                                    child: Column(
+                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      children: [
+                                        Text(
+                                          'CALL ASSIGNED DRIVER',
+                                          style: TextStyle(
+                                            color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                                            fontSize: 9.5,
+                                            fontWeight: FontWeight.bold,
+                                            letterSpacing: 0.6,
+                                          ),
+                                        ),
+                                        Text(
+                                          _driverPhone!,
+                                          style: const TextStyle(
+                                            color: Color(0xFF00E676),
+                                            fontWeight: FontWeight.bold,
+                                            fontSize: 14,
+                                            letterSpacing: 0.5,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                                FilledButton.icon(
+                                  style: FilledButton.styleFrom(
+                                    backgroundColor: const Color(0xFF00E676),
+                                    foregroundColor: Colors.black,
+                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    visualDensity: VisualDensity.compact,
+                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  ),
+                                  onPressed: () => _callNumber(_driverPhone!),
+                                  icon: const Icon(Icons.call, size: 16),
+                                  label: const Text(
+                                    'Call Driver',
+                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ] else if (_driverName != null) ...[
+                          const SizedBox(height: 10),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                            decoration: BoxDecoration(
+                              color: innerChipBg,
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(color: cardBorder),
+                            ),
+                            child: Row(
+                              children: [
+                                const Icon(Icons.phone_in_talk_rounded, size: 15, color: Color(0xFF00E676)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    'Direct Ambulance Dispatch Channel Active',
+                                    style: TextStyle(
+                                      color: textMuted,
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w600,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ),

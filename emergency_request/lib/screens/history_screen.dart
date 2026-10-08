@@ -23,35 +23,61 @@ class PatientReviewData {
 PatientReviewData? parseReviewFromNotes(String? notes) {
   if (notes == null || notes.isEmpty) return null;
 
-  // Matches [PATIENT REVIEW ★★★★★ (5/5)]: remark | TAGS: ...
-  // or [PATIENT FEEDBACK: 5★ | Tags: ... | Note: ...]
-  final starMatch = RegExp(
-    r'PATIENT (?:REVIEW|FEEDBACK|RATING)[^:]*:\s*([1-5])(?:\/5)?(?:★|\s*stars?)?',
-    caseSensitive: false,
-  ).firstMatch(notes) ?? RegExp(r'([1-5])★').firstMatch(notes);
+  // Extract rating (1 to 5) through multiple robust patterns
+  int? rating;
 
-  if (starMatch == null) return null;
-  final rating = int.tryParse(starMatch.group(1) ?? '5') ?? 5;
-
-  String remark = '';
-  final remarkMatch = RegExp(
-    r'\[PATIENT REVIEW [^:]+:\s*([^|\]]+)',
-    caseSensitive: false,
-  ).firstMatch(notes) ?? RegExp(
-    r'(?:REMARK|Note):\s*([^|\]\n\r]+)',
-    caseSensitive: false,
-  ).firstMatch(notes);
-
-  if (remarkMatch != null) {
-    remark = remarkMatch.group(1)?.trim() ?? '';
+  // 1. Ratio pattern e.g. (5/5) or 5/5
+  final ratioMatch = RegExp(r'\(([1-5])\/5\)').firstMatch(notes) ??
+      RegExp(r'([1-5])\/5').firstMatch(notes);
+  if (ratioMatch != null) {
+    rating = int.tryParse(ratioMatch.group(1) ?? '');
   }
 
-  final tags = <String>[];
-  final tagsMatch = RegExp(
-    r'(?:Tags|TAGS):\s*([^|\]\n\r]+)',
-    caseSensitive: false,
-  ).firstMatch(notes);
+  // 2. Explicit star number pattern e.g. "5★", "5 stars"
+  if (rating == null) {
+    final starNumMatch = RegExp(r'([1-5])\s*(?:★|⭐|stars?)', caseSensitive: false).firstMatch(notes);
+    if (starNumMatch != null) {
+      rating = int.tryParse(starNumMatch.group(1) ?? '');
+    }
+  }
 
+  // 3. Count literal star symbols inside review block
+  if (rating == null) {
+    final blockMatch = RegExp(r'\[PATIENT\s+(?:REVIEW|FEEDBACK|RATING)[^\]]*\]', caseSensitive: false).firstMatch(notes);
+    if (blockMatch != null) {
+      final blockStr = blockMatch.group(0) ?? '';
+      final starCount = RegExp(r'[★⭐]').allMatches(blockStr).length;
+      if (starCount >= 1 && starCount <= 5) {
+        rating = starCount;
+      }
+    }
+  }
+
+  // 4. Pattern: PATIENT REVIEW ... : 5
+  if (rating == null) {
+    final directMatch = RegExp(r'PATIENT\s+(?:REVIEW|FEEDBACK|RATING)[^:]*:\s*([1-5])', caseSensitive: false).firstMatch(notes);
+    if (directMatch != null) {
+      rating = int.tryParse(directMatch.group(1) ?? '');
+    }
+  }
+
+  if (rating == null || rating < 1 || rating > 5) return null;
+
+  // Extract Remark:
+  String remark = '';
+  final namedRemark = RegExp(r'(?:REMARK|Note):\s*([^|\]\n\r]+)', caseSensitive: false).firstMatch(notes);
+  if (namedRemark != null) {
+    remark = namedRemark.group(1)?.trim() ?? '';
+  } else {
+    final reviewBlockMatch = RegExp(r'\[PATIENT\s+(?:REVIEW|FEEDBACK|RATING)[^:]*:\s*([^|\]]+)', caseSensitive: false).firstMatch(notes);
+    if (reviewBlockMatch != null) {
+      remark = reviewBlockMatch.group(1)?.trim() ?? '';
+    }
+  }
+
+  // Extract Tags:
+  final tags = <String>[];
+  final tagsMatch = RegExp(r'(?:TAGS|Tags):\s*([^|\]\n\r]+)', caseSensitive: false).firstMatch(notes);
   if (tagsMatch != null) {
     for (final t in (tagsMatch.group(1) ?? '').split(',')) {
       final tr = t.trim();
@@ -61,10 +87,18 @@ PatientReviewData? parseReviewFromNotes(String? notes) {
     }
   }
 
+  // Extract Date:
+  String? submittedAt;
+  final dateMatch = RegExp(r'(?:SUBMITTED|AT):\s*([^\]]+)', caseSensitive: false).firstMatch(notes);
+  if (dateMatch != null) {
+    submittedAt = dateMatch.group(1)?.trim();
+  }
+
   return PatientReviewData(
     rating: rating,
     remark: remark.isNotEmpty ? remark : 'Emergency service completed.',
     tags: tags,
+    submittedAt: submittedAt,
   );
 }
 
@@ -164,7 +198,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
       if (mounted) {
         setState(() {
           _history = closed;
-          _reviews.addAll(parsedReviews);
+          parsedReviews.forEach((k, v) => _reviews[k] = v);
           _loading = false;
         });
       }
