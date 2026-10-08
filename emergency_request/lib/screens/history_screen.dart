@@ -1097,7 +1097,7 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
               ),
               const SizedBox(height: 2),
               Text(
-                'This remark is audited by Solace Emergency Dispatchers and Admins.',
+                'This remark is audited by Solace EMS Dispatchers and Admins.',
                 style: TextStyle(color: textMuted, fontSize: 11),
               ),
               const SizedBox(height: 8),

@@ -544,7 +544,7 @@ class _RequestScreenState extends State<RequestScreen>
               ),
             ),
             Text(
-              '24/7 Nationwide Emergency Network',
+              '24/7 Emergency Network',
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -852,7 +852,7 @@ class _RequestScreenState extends State<RequestScreen>
                 child: Column(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    // Network & Dispatch Status (Nationwide)
+                    // Network & Dispatch Status
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                       decoration: BoxDecoration(
@@ -867,7 +867,7 @@ class _RequestScreenState extends State<RequestScreen>
                           SizedBox(width: 6),
                           Flexible(
                             child: Text(
-                              'SOLACE RAPID RESPONSE • 24/7 NATIONWIDE EMS NETWORK ACTIVE',
+                              'SOLACE RAPID RESPONSE • 24/7 EMS NETWORK ACTIVE',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(

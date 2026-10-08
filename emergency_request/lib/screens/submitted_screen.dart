@@ -602,11 +602,51 @@ class _SubmittedScreenState extends State<SubmittedScreen>
   }
 
   Future<void> _callNumber(String phone) async {
+    HapticFeedback.heavyImpact();
+    if (phone.trim().isEmpty) return;
     final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
-    final uri = Uri.parse('tel:$clean');
+    if (clean.isEmpty) return;
+
+    final uri = Uri(scheme: 'tel', path: clean);
+    bool launched = false;
     try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    } catch (_) {}
+      // 1. Standard Android dialer invocation (platformDefault mode)
+      launched = await launchUrl(uri, mode: LaunchMode.platformDefault);
+    } catch (e) {
+      debugPrint('Dialer platformDefault error: $e');
+    }
+
+    if (!launched) {
+      try {
+        // 2. Direct launch without mode constraint
+        launched = await launchUrl(uri);
+      } catch (e) {
+        debugPrint('Dialer default error: $e');
+      }
+    }
+
+    if (!launched) {
+      try {
+        // 3. Fallback with Uri.parse external
+        final parsed = Uri.parse('tel:$clean');
+        launched = await launchUrl(parsed, mode: LaunchMode.externalApplication);
+      } catch (e) {
+        debugPrint('Dialer externalApplication error: $e');
+      }
+    }
+
+    if (!launched && mounted) {
+      // Direct clipboard copy and instant user notification
+      await Clipboard.setData(ClipboardData(text: clean));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Dialer intent initiated: $clean (Number copied)'),
+          backgroundColor: const Color(0xFF00E676),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   Future<void> _sendSms(String phone, String body) async {
@@ -1303,7 +1343,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                   style: FilledButton.styleFrom(
                                     backgroundColor: const Color(0xFF00E676),
                                     foregroundColor: Colors.black,
-                                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
                                     visualDensity: VisualDensity.compact,
                                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                   ),
@@ -1312,6 +1352,20 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                   label: const Text(
                                     'Call Driver',
                                     style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                                  ),
+                                ),
+                                const SizedBox(width: 6),
+                                Container(
+                                  decoration: BoxDecoration(
+                                    color: const Color(0xFF25D366).withValues(alpha: 0.18),
+                                    borderRadius: BorderRadius.circular(10),
+                                  ),
+                                  child: IconButton(
+                                    icon: const Icon(Icons.chat_bubble_rounded, size: 18, color: Color(0xFF25D366)),
+                                    tooltip: 'WhatsApp Driver',
+                                    padding: const EdgeInsets.all(8),
+                                    constraints: const BoxConstraints(),
+                                    onPressed: () => _openWhatsApp(_driverPhone!, 'Solace EMS: Patient ready for pickup.'),
                                   ),
                                 ),
                               ],

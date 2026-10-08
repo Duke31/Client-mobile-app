@@ -98,11 +98,20 @@ jobs:
               )
               i = text.find(">")
               text = text[: i + 1] + insert + text[i + 1 :]
+          text = text.replace('android:label="emergency_request"', 'android:label="Solace EMS"')
           if "<queries>" not in text:
               q = (
                   "\n    <queries>"
                   "\n        <intent>"
                   "\n            <action android:name=\"android.intent.action.DIAL\" />"
+                  "\n            <data android:scheme=\"tel\" />"
+                  "\n        </intent>"
+                  "\n        <intent>"
+                  "\n            <action android:name=\"android.intent.action.VIEW\" />"
+                  "\n            <data android:scheme=\"tel\" />"
+                  "\n        </intent>"
+                  "\n        <intent>"
+                  "\n            <action android:name=\"android.intent.action.CALL\" />"
                   "\n            <data android:scheme=\"tel\" />"
                   "\n        </intent>"
                   "\n        <intent>"

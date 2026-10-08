@@ -32,7 +32,7 @@ class EmergencyApp extends StatelessWidget {
       valueListenable: AppTheme.themeModeNotifier,
       builder: (context, currentMode, _) {
         return MaterialApp(
-          title: 'Solace Emergency',
+          title: 'Solace EMS',
           debugShowCheckedModeBanner: false,
           theme: AppTheme.lightTheme,
           darkTheme: AppTheme.darkTheme,

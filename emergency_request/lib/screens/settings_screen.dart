@@ -104,7 +104,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
           ],
         ),
         content: Text(
-          'Are you sure you want to log out of your Solace Emergency account?',
+          'Are you sure you want to log out of your Solace EMS account?',
           style: TextStyle(
             color: isDark ? Colors.white70 : const Color(0xFF475569),
             fontSize: 13,
@@ -723,7 +723,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
                     ),
                     const SizedBox(height: 2),
                     Text(
-                      'Nationwide Ambulance & Trauma Bay Operations',
+                      'Ambulance & Trauma Bay Operations',
                       style: TextStyle(color: textMuted.withValues(alpha: 0.6), fontSize: 9.5),
                     ),
                   ],
