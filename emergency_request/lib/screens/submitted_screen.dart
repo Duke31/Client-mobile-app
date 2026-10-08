@@ -196,9 +196,14 @@ class _SubmittedScreenState extends State<SubmittedScreen>
           .eq('id', reqId)
           .listen((data) {
             if (data.isNotEmpty && mounted) {
-              final newStatus = data.first['status']?.toString();
+              final rec = data.first;
+              final newStatus = rec['status']?.toString();
+              final hid = rec['hospital_id']?.toString();
               if (newStatus != null && newStatus != _currentStatus) {
                 _handleStatusChange(newStatus);
+              }
+              if (hid != null && hid.isNotEmpty && _hospitalName == null) {
+                _fetchHospitalById(hid);
               }
               _refreshStatus(reqId);
             }
@@ -212,7 +217,33 @@ class _SubmittedScreenState extends State<SubmittedScreen>
     });
     if (_isCompleted || _isCancelled) {
       _stopMonitoring();
+      if (_isCancelled && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Emergency request has been closed / cancelled by dispatch.'),
+            backgroundColor: Colors.redAccent,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
     }
+  }
+
+  Future<void> _fetchHospitalById(String hospitalId) async {
+    try {
+      final h = await _supabase
+          .from('hospitals')
+          .select('id, name, address, intake_phone')
+          .eq('id', hospitalId)
+          .maybeSingle();
+      if (h != null && mounted) {
+        setState(() {
+          _hospitalName = h['name']?.toString() ?? _hospitalName;
+          _hospitalAddress = h['address']?.toString() ?? _hospitalAddress;
+          _hospitalPhone = (h['intake_phone'] ?? h['phone'])?.toString() ?? _hospitalPhone;
+        });
+      }
+    } catch (_) {}
   }
 
   Future<void> _refreshStatus(String reqId) async {
