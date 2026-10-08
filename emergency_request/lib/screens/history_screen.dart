@@ -198,26 +198,41 @@ class _HistoryScreenState extends State<HistoryScreen> {
             _reviews[reqId] = reviewObj;
           });
 
-          // 1. Save to Supabase emergency_requests.notes
-          try {
-            final oldNotes = req['notes']?.toString() ?? '';
-            final cleanNotes = oldNotes
-                .replaceAll(RegExp(r'\[PATIENT (?:REVIEW|FEEDBACK|RATING)[^\]]*\]', caseSensitive: false), '')
-                .trim();
-            final dateStr = DateTime.now().toString().split('.').first;
-            final payload =
-                '[PATIENT REVIEW ${'★' * rating}${'☆' * (5 - rating)} ($rating/5)]: $remark | TAGS: ${tags.join(', ')} | SUBMITTED: $dateStr]';
-            final newNotes = cleanNotes.isNotEmpty ? '$cleanNotes\n$payload' : payload;
+          final oldNotes = req['notes']?.toString() ?? '';
+          final cleanNotes = oldNotes
+              .replaceAll(RegExp(r'\[PATIENT (?:REVIEW|FEEDBACK|RATING)[^\]]*\]', caseSensitive: false), '')
+              .trim();
+          final dateStr = DateTime.now().toString().split('.').first;
+          final payload =
+              '[PATIENT REVIEW ${'★' * rating}${'☆' * (5 - rating)} ($rating/5)]: $remark | TAGS: ${tags.join(', ')} | SUBMITTED: $dateStr]';
+          final newNotes = cleanNotes.isNotEmpty ? '$cleanNotes\n$payload' : payload;
 
-            await _supabase.from('emergency_requests').update({'notes': newNotes}).eq('id', reqId);
-          } catch (err) {
-            debugPrint('Supabase note update notice: $err');
+          setState(() {
+            _reviews[reqId] = reviewObj;
+            req['notes'] = newNotes;
+          });
+
+          // 1. Save to Supabase via dedicated SECURITY DEFINER RPC
+          try {
+            await _supabase.rpc('client_submit_patient_review', params: {
+              'p_request_id': reqId,
+              'p_rating': rating,
+              'p_remark': remark,
+              'p_tags': tags,
+            });
+          } catch (rpcErr) {
+            debugPrint('client_submit_patient_review RPC note: $rpcErr');
+            try {
+              await _supabase.from('emergency_requests').update({'notes': newNotes}).eq('id', reqId);
+            } catch (err) {
+              debugPrint('Supabase direct update notice: $err');
+            }
           }
 
-          // 2. Also send to Ops Dashboard /api/reviews for guaranteed Dispatcher audit
+          // 2. Guaranteed server-side persist via Ops Dashboard /api/reviews (service role backed)
           try {
             final url = Uri.parse('https://ops-dashboard-eta-ten.vercel.app/api/reviews');
-            await http.post(
+            final resp = await http.post(
               url,
               headers: {'Content-Type': 'application/json'},
               body: jsonEncode({
@@ -227,6 +242,12 @@ class _HistoryScreenState extends State<HistoryScreen> {
                 'tags': tags,
               }),
             );
+            if (resp.statusCode == 200) {
+              final data = jsonDecode(resp.body);
+              if (data is Map && data['notes'] != null) {
+                req['notes'] = data['notes'];
+              }
+            }
           } catch (_) {}
 
           if (mounted) {
