@@ -496,6 +496,9 @@ class _RequestScreenState extends State<RequestScreen>
 
   @override
   Widget build(BuildContext context) {
+    if (_activeMission == null && _submitting) {
+      _submitting = false;
+    }
     final hasActiveMission = _activeMission != null;
     final accuracy = _fix?.accuracyMeters;
     final isDark = Theme.of(context).brightness == Brightness.dark;
@@ -1236,6 +1239,9 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
 
   @override
   Widget build(BuildContext context) {
+    if (_activeMission == null && _submitting) {
+      _submitting = false;
+    }
     final bottomInset = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
