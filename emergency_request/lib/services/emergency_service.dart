@@ -94,9 +94,13 @@ class EmergencyService {
           );
 
     final (typeForDb, typeNote) = EmergencyTypeNormalizer.normalize(emergencyType);
+    final ageNote = (ageBand.trim().isNotEmpty && ageBand.trim().toLowerCase() != 'unknown')
+        ? 'Age band: ${ageBand.trim()}'
+        : null;
     final notesMerged = [
       if (notes.trim().isNotEmpty) notes.trim(),
       if (typeNote != null) typeNote,
+      if (ageNote != null) ageNote,
     ].join(' | ');
 
     final params = <String, dynamic>{
