@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
 import '../services/client_request_detail.dart';
 import 'package:http/http.dart' as http;
 
@@ -41,6 +42,7 @@ class _LiveAmbulanceTrackingScreenState
   String? _resolvedRequestId;
   String? _driverId;
   String? _driverName;
+  String? _driverPhone;
   String? _vehicleLabel;
   double _currentSpeedKmH = 0.0;
   String _missionStatus = "Connecting…";
@@ -206,6 +208,10 @@ class _LiveAmbulanceTrackingScreenState
             d['vehicle_plate']?.toString() ??
             "Rapid Response Vehicle";
 
+        final phone = d['phone']?.toString() ??
+            d['phone_number']?.toString() ??
+            d['contact_phone']?.toString();
+
         final lat = (d['current_lat'] as num?)?.toDouble();
         final lng = (d['current_lng'] as num?)?.toDouble();
         final heading = (d['heading'] as num?)?.toDouble() ?? 0.0;
@@ -214,6 +220,9 @@ class _LiveAmbulanceTrackingScreenState
         setState(() {
           _driverName = name;
           _vehicleLabel = vehicle;
+          if (phone != null && phone.trim().isNotEmpty) {
+            _driverPhone = phone.trim();
+          }
         });
 
         if (lat != null && lng != null) {
@@ -255,13 +264,15 @@ class _LiveAmbulanceTrackingScreenState
           final lng = (d['current_lng'] as num?)?.toDouble();
           final name = d['display_name']?.toString();
           final vehicle = d['vehicle_label']?.toString();
+          final phone = d['phone']?.toString();
           final did = detail['driver_id']?.toString() ?? d['id']?.toString();
           if (did != null && did.isNotEmpty) _driverId = did;
-          if (name != null || vehicle != null) {
+          if (name != null || vehicle != null || phone != null) {
             if (mounted) {
               setState(() {
                 if (name != null && name.isNotEmpty) _driverName = name;
                 if (vehicle != null && vehicle.isNotEmpty) _vehicleLabel = vehicle;
+                if (phone != null && phone.trim().isNotEmpty) _driverPhone = phone.trim();
               });
             }
           }
@@ -323,7 +334,7 @@ class _LiveAmbulanceTrackingScreenState
       final d = await _supabase
           .from('drivers')
           .select(
-            'current_lat, current_lng, heading, speed, display_name, vehicle_label',
+            'current_lat, current_lng, heading, speed, display_name, vehicle_label, phone',
           )
           .eq('id', _driverId!)
           .maybeSingle();
@@ -335,11 +346,13 @@ class _LiveAmbulanceTrackingScreenState
         final speed = (d['speed'] as num?)?.toDouble() ?? 0.0;
         final name = d['display_name']?.toString();
         final vehicle = d['vehicle_label']?.toString();
+        final phone = d['phone']?.toString();
 
-        if (name != null || vehicle != null) {
+        if (name != null || vehicle != null || phone != null) {
           setState(() {
             if (name != null && name.isNotEmpty) _driverName = name;
             if (vehicle != null && vehicle.isNotEmpty) _vehicleLabel = vehicle;
+            if (phone != null && phone.trim().isNotEmpty) _driverPhone = phone.trim();
           });
         }
 
@@ -586,6 +599,30 @@ class _LiveAmbulanceTrackingScreenState
           padding: const EdgeInsets.symmetric(horizontal: 50, vertical: 120),
         ),
       );
+    } catch (_) {}
+  }
+
+  Future<void> _callNumber(String phone) async {
+    if (phone.trim().isEmpty) return;
+    final clean = phone.replaceAll(RegExp(r'[^0-9+]'), '');
+    final uri = Uri.parse('tel:$clean');
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        await launchUrl(uri);
+      }
+    } catch (_) {}
+  }
+
+  Future<void> _openWhatsApp(String phone, String body) async {
+    String clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.startsWith('0') && clean.length == 11) {
+      clean = '234${clean.substring(1)}';
+    }
+    final uri = Uri.parse('https://wa.me/$clean?text=${Uri.encodeComponent(body)}');
+    try {
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      }
     } catch (_) {}
   }
 
@@ -926,6 +963,47 @@ class _LiveAmbulanceTrackingScreenState
                         ),
                     ],
                   ),
+                  if (_driverPhone != null && _driverPhone!.trim().isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: FilledButton.icon(
+                            style: FilledButton.styleFrom(
+                              backgroundColor: const Color(0xFF046A38),
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.call, size: 16),
+                            label: const Text(
+                              "Call Driver",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            onPressed: () => _callNumber(_driverPhone!),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF25D366),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 10),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                            ),
+                            icon: const Icon(Icons.chat_bubble_rounded, size: 16),
+                            label: const Text(
+                              "WhatsApp",
+                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            ),
+                            onPressed: () => _openWhatsApp(_driverPhone!, "Solace EMS: Patient live tracking check-in."),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
                 ],
               ),
             ),
