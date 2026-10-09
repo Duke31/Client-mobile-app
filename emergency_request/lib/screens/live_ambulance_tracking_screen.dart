@@ -966,7 +966,7 @@ class _LiveAmbulanceTrackingScreenState
                   Builder(
                     builder: (context) {
                       final hasDirectPhone = _driverPhone != null && _driverPhone!.trim().isNotEmpty;
-                      final phoneToUse = hasDirectPhone ? _driverPhone!.trim() : '+2348133355709';
+                      final directPhone = hasDirectPhone ? _driverPhone!.trim() : null;
                       return Padding(
                         padding: const EdgeInsets.only(top: 12),
                         child: Row(
@@ -980,11 +980,20 @@ class _LiveAmbulanceTrackingScreenState
                                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                 ),
                                 icon: const Icon(Icons.call, size: 16),
-                                label: Text(
-                                  hasDirectPhone ? "Call Driver" : "Call Dispatch",
-                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                label: const Text(
+                                  "Call Driver",
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                 ),
-                                onPressed: () => _callNumber(phoneToUse),
+                                onPressed: hasDirectPhone
+                                    ? () => _callNumber(directPhone!)
+                                    : () {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text("Driver direct contact number is pending update."),
+                                            behavior: SnackBarBehavior.floating,
+                                          ),
+                                        );
+                                      },
                               ),
                             ),
                             const SizedBox(width: 8),
@@ -1002,10 +1011,19 @@ class _LiveAmbulanceTrackingScreenState
                                   "WhatsApp",
                                   style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                 ),
-                                onPressed: () => _openWhatsApp(
-                                  phoneToUse,
-                                  "Solace EMS: Patient live tracking check-in for emergency ${_resolvedRequestId ?? ''}.",
-                                ),
+                                onPressed: hasDirectPhone
+                                    ? () => _openWhatsApp(
+                                          directPhone!,
+                                          "Solace EMS: Patient live tracking check-in for emergency ${_resolvedRequestId ?? ''}.",
+                                        )
+                                    : () {
+                                        ScaffoldMessenger.of(context).showSnackBar(
+                                          const SnackBar(
+                                            content: Text("Driver WhatsApp number is pending update."),
+                                            behavior: SnackBarBehavior.floating,
+                                          ),
+                                        );
+                                      },
                               ),
                             ),
                           ],

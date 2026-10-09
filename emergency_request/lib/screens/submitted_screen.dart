@@ -386,6 +386,17 @@ class _SubmittedScreenState extends State<SubmittedScreen>
           driver['phone_number']?.toString() ??
           driver['contact_phone']?.toString() ??
           dPhone;
+      if ((dPhone == null || dPhone.isEmpty) && vLabel != null) {
+        final digits = vLabel.replaceAll(RegExp(r'[^0-9]'), '');
+        if (digits.length >= 10 && digits.length <= 14) {
+          dPhone = vLabel;
+        }
+      }
+    }
+
+    final reqDriverPhone = req['driver_phone']?.toString();
+    if (reqDriverPhone != null && reqDriverPhone.isNotEmpty && (dPhone == null || dPhone.isEmpty)) {
+      dPhone = reqDriverPhone;
     }
     final reqDriverId = req['driver_id']?.toString();
     if (reqDriverId != null && reqDriverId.isNotEmpty && (dPhone == null || dPhone.isEmpty)) {
@@ -1317,14 +1328,14 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                             ),
                           ),
                         ],
-                        // Task A: CONTACT RESPONDER section (driver phone only)
+                        // Task A: CONTACT RESPONDER section (dedicated to assigned driver only)
                         Builder(
                           builder: (context) {
                             if (_driverName == null) return const SizedBox.shrink();
 
                             final hasPhone = _driverPhone != null && _driverPhone!.trim().isNotEmpty;
-                            final phoneToUse = hasPhone ? _driverPhone!.trim() : '+2348133355709';
-                            final phoneDisplay = hasPhone ? _driverPhone!.trim() : '+2348133355709 (Dispatch Line)';
+                            final driverPhoneClean = hasPhone ? _driverPhone!.trim() : null;
+                            final phoneDisplay = hasPhone ? driverPhoneClean! : 'Phone pending from driver profile';
 
                             return Padding(
                               padding: const EdgeInsets.only(top: 12),
@@ -1341,7 +1352,16 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
                                     InkWell(
-                                      onTap: () => _callNumber(phoneToUse),
+                                      onTap: hasPhone
+                                          ? () => _callNumber(driverPhoneClean!)
+                                          : () {
+                                              ScaffoldMessenger.of(context).showSnackBar(
+                                                const SnackBar(
+                                                  content: Text('Assigned driver phone number is pending update.'),
+                                                  behavior: SnackBarBehavior.floating,
+                                                ),
+                                              );
+                                            },
                                       borderRadius: BorderRadius.circular(10),
                                       child: Row(
                                         children: [
@@ -1363,7 +1383,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                               crossAxisAlignment: CrossAxisAlignment.start,
                                               children: [
                                                 Text(
-                                                  'CONTACT RESPONDER',
+                                                  'CONTACT ASSIGNED DRIVER',
                                                   style: TextStyle(
                                                     color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
                                                     fontSize: 9.5,
@@ -1374,17 +1394,18 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                                 const SizedBox(height: 2),
                                                 Text(
                                                   phoneDisplay,
-                                                  style: const TextStyle(
-                                                    color: Color(0xFF00E676),
+                                                  style: TextStyle(
+                                                    color: hasPhone ? const Color(0xFF00E676) : textMuted,
                                                     fontWeight: FontWeight.w900,
-                                                    fontSize: 14,
-                                                    letterSpacing: 0.5,
+                                                    fontSize: hasPhone ? 14 : 12,
+                                                    letterSpacing: hasPhone ? 0.5 : 0,
                                                   ),
                                                 ),
                                               ],
                                             ),
                                           ),
-                                          const Icon(Icons.phone_forwarded_rounded, size: 16, color: Color(0xFF00E676)),
+                                          if (hasPhone)
+                                            const Icon(Icons.phone_forwarded_rounded, size: 16, color: Color(0xFF00E676)),
                                         ],
                                       ),
                                     ),
@@ -1399,11 +1420,20 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                               padding: const EdgeInsets.symmetric(vertical: 10),
                                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                             ),
-                                            onPressed: () => _callNumber(phoneToUse),
+                                            onPressed: hasPhone
+                                                ? () => _callNumber(driverPhoneClean!)
+                                                : () {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text('Assigned driver phone number is not available yet.'),
+                                                        behavior: SnackBarBehavior.floating,
+                                                      ),
+                                                    );
+                                                  },
                                             icon: const Icon(Icons.call_rounded, size: 16),
-                                            label: Text(
-                                              hasPhone ? 'Call Driver' : 'Call Dispatch',
-                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                            label: const Text(
+                                              'Call Driver',
+                                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                             ),
                                           ),
                                         ),
@@ -1417,10 +1447,19 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                               padding: const EdgeInsets.symmetric(vertical: 10),
                                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                             ),
-                                            onPressed: () => _openWhatsApp(
-                                              phoneToUse,
-                                              'Hello, this is the Solace patient for assigned emergency ${_requestId ?? ""}. Please confirm ETA.',
-                                            ),
+                                            onPressed: hasPhone
+                                                ? () => _openWhatsApp(
+                                                      driverPhoneClean!,
+                                                      'Hello, this is the Solace patient for assigned emergency ${_requestId ?? ""}. Please confirm ETA.',
+                                                    )
+                                                : () {
+                                                    ScaffoldMessenger.of(context).showSnackBar(
+                                                      const SnackBar(
+                                                        content: Text('Assigned driver WhatsApp number is not available yet.'),
+                                                        behavior: SnackBarBehavior.floating,
+                                                      ),
+                                                    );
+                                                  },
                                             icon: const Icon(Icons.chat_rounded, size: 16),
                                             label: const Text(
                                               'WhatsApp',

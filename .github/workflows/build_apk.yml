@@ -12,10 +12,14 @@ jobs:
       - name: Checkout Repository
         uses: actions/checkout@v4
 
-      - name: Unpack Project Zip
+      - name: Prepare Project Source
         run: |
-          if ls *.zip > /dev/null 2>&1; then unzip -o *.zip; fi
-          if [ -d emergency_request ]; then cp -R emergency_request/. .; fi
+          if [ -d emergency_request ]; then
+            cp -R emergency_request/. .
+          elif ls *.zip > /dev/null 2>&1; then
+            unzip -o *.zip
+            if [ -d emergency_request ]; then cp -R emergency_request/. .; fi
+          fi
 
       - name: Fix submitted screen
         run: |
