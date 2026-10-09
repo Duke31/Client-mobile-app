@@ -1156,7 +1156,17 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
   final _notesController = TextEditingController();
 
   String _selectedCondition = 'Accident';
+  String _selectedAgeBand = '18-39';
   int _priority = 1;
+
+  static const List<Map<String, String>> _ageBandOptions = [
+    {'value': '0-1', 'label': '0-1 yr (Infant)'},
+    {'value': '2-12', 'label': '2-12 yrs (Child)'},
+    {'value': '13-17', 'label': '13-17 yrs (Teen)'},
+    {'value': '18-39', 'label': '18-39 yrs (Adult)'},
+    {'value': '40-64', 'label': '40-64 yrs (Mature)'},
+    {'value': '65+', 'label': '65+ yrs (Senior)'},
+  ];
 
   static const List<Map<String, dynamic>> _quickConditions = [
     {
@@ -1221,6 +1231,9 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
   void initState() {
     super.initState();
     _phoneController = TextEditingController(text: widget.defaultPhone ?? '');
+    if (widget.defaultAgeBand != null && widget.defaultAgeBand!.trim().isNotEmpty) {
+      _selectedAgeBand = widget.defaultAgeBand!.trim();
+    }
   }
 
   @override
@@ -1236,6 +1249,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     Navigator.of(context).pop(
       _IntakeData(
         condition: _selectedCondition,
+        ageBand: _selectedAgeBand,
         contactPhone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
         manualAddress: _landmarkController.text.trim().isNotEmpty ? _landmarkController.text.trim() : null,
         notes: _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null,
@@ -1418,6 +1432,76 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                   ),
                 );
               },
+            ),
+
+            const SizedBox(height: 14),
+
+            // Patient Age Selection
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                const Text(
+                  'PATIENT AGE CATEGORY',
+                  style: TextStyle(
+                    color: Colors.white70,
+                    fontSize: 10,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.8,
+                  ),
+                ),
+                Text(
+                  _selectedAgeBand == 'unknown' ? 'Not specified' : '$_selectedAgeBand yrs',
+                  style: const TextStyle(
+                    color: Color(0xFF00D4FF),
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+
+            SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              child: Row(
+                children: _ageBandOptions.map((opt) {
+                  final val = opt['value']!;
+                  final lbl = opt['label']!;
+                  final isSel = _selectedAgeBand == val;
+                  return Padding(
+                    padding: const EdgeInsets.only(right: 8),
+                    child: InkWell(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _selectedAgeBand = val);
+                      },
+                      borderRadius: BorderRadius.circular(10),
+                      child: AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+                        decoration: BoxDecoration(
+                          color: isSel
+                              ? const Color(0xFF00D4FF).withValues(alpha: 0.25)
+                              : const Color(0xFF0D2559),
+                          borderRadius: BorderRadius.circular(10),
+                          border: Border.all(
+                            color: isSel ? const Color(0xFF00D4FF) : Colors.white12,
+                            width: isSel ? 1.5 : 1.0,
+                          ),
+                        ),
+                        child: Text(
+                          lbl,
+                          style: TextStyle(
+                            color: isSel ? Colors.white : Colors.white70,
+                            fontSize: 11,
+                            fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
+                          ),
+                        ),
+                      ),
+                    ),
+                  );
+                }).toList(),
+              ),
             ),
 
             const SizedBox(height: 14),
