@@ -658,10 +658,15 @@ class _SubmittedScreenState extends State<SubmittedScreen>
   }
 
   Future<void> _openWhatsApp(String phone, String body) async {
-    final clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    String clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
+    if (clean.startsWith('0') && clean.length == 11) {
+      clean = '234${clean.substring(1)}';
+    }
     final uri = Uri.parse('https://wa.me/$clean?text=${Uri.encodeComponent(body)}');
     try {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
+        await launchUrl(uri, mode: LaunchMode.platformDefault);
+      }
     } catch (_) {}
   }
 
