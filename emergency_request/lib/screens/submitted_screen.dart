@@ -1323,7 +1323,8 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                             if (_driverName == null) return const SizedBox.shrink();
 
                             final hasPhone = _driverPhone != null && _driverPhone!.trim().isNotEmpty;
-                            final phoneText = hasPhone ? _driverPhone!.trim() : null;
+                            final phoneToUse = hasPhone ? _driverPhone!.trim() : '+2348133355709';
+                            final phoneDisplay = hasPhone ? _driverPhone!.trim() : '+2348133355709 (Dispatch Line)';
 
                             return Padding(
                               padding: const EdgeInsets.only(top: 12),
@@ -1333,60 +1334,59 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                   color: innerChipBg,
                                   borderRadius: BorderRadius.circular(14),
                                   border: Border.all(
-                                    color: hasPhone
-                                        ? const Color(0xFF00E676).withValues(alpha: 0.4)
-                                        : cardBorder,
+                                    color: const Color(0xFF00E676).withValues(alpha: 0.4),
                                   ),
                                 ),
                                 child: Column(
                                   crossAxisAlignment: CrossAxisAlignment.stretch,
                                   children: [
-                                    Row(
-                                      children: [
-                                        Container(
-                                          padding: const EdgeInsets.all(8),
-                                          decoration: BoxDecoration(
-                                            color: hasPhone
-                                                ? const Color(0xFF00E676).withValues(alpha: 0.2)
-                                                : Colors.white10,
-                                            shape: BoxShape.circle,
+                                    InkWell(
+                                      onTap: () => _callNumber(phoneToUse),
+                                      borderRadius: BorderRadius.circular(10),
+                                      child: Row(
+                                        children: [
+                                          Container(
+                                            padding: const EdgeInsets.all(8),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFF00E676).withValues(alpha: 0.2),
+                                              shape: BoxShape.circle,
+                                            ),
+                                            child: const Icon(
+                                              Icons.phone_in_talk_rounded,
+                                              size: 18,
+                                              color: Color(0xFF00E676),
+                                            ),
                                           ),
-                                          child: Icon(
-                                            Icons.phone_in_talk_rounded,
-                                            size: 18,
-                                            color: hasPhone ? const Color(0xFF00E676) : textMuted,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 10),
-                                        Expanded(
-                                          child: Column(
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              Text(
-                                                'CONTACT RESPONDER',
-                                                style: TextStyle(
-                                                  color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
-                                                  fontSize: 9.5,
-                                                  fontWeight: FontWeight.bold,
-                                                  letterSpacing: 0.6,
+                                          const SizedBox(width: 10),
+                                          Expanded(
+                                            child: Column(
+                                              crossAxisAlignment: CrossAxisAlignment.start,
+                                              children: [
+                                                Text(
+                                                  'CONTACT RESPONDER',
+                                                  style: TextStyle(
+                                                    color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                                                    fontSize: 9.5,
+                                                    fontWeight: FontWeight.bold,
+                                                    letterSpacing: 0.6,
+                                                  ),
                                                 ),
-                                              ),
-                                              const SizedBox(height: 2),
-                                              Text(
-                                                hasPhone
-                                                    ? phoneText!
-                                                    : 'Phone number pending from dispatch…',
-                                                style: TextStyle(
-                                                  color: hasPhone ? const Color(0xFF00E676) : textMuted,
-                                                  fontWeight: hasPhone ? FontWeight.w900 : FontWeight.w500,
-                                                  fontSize: hasPhone ? 15 : 12,
-                                                  letterSpacing: hasPhone ? 0.5 : 0,
+                                                const SizedBox(height: 2),
+                                                Text(
+                                                  phoneDisplay,
+                                                  style: const TextStyle(
+                                                    color: Color(0xFF00E676),
+                                                    fontWeight: FontWeight.w900,
+                                                    fontSize: 14,
+                                                    letterSpacing: 0.5,
+                                                  ),
                                                 ),
-                                              ),
-                                            ],
+                                              ],
+                                            ),
                                           ),
-                                        ),
-                                      ],
+                                          const Icon(Icons.phone_forwarded_rounded, size: 16, color: Color(0xFF00E676)),
+                                        ],
+                                      ),
                                     ),
                                     const SizedBox(height: 12),
                                     Row(
@@ -1396,16 +1396,14 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                             style: FilledButton.styleFrom(
                                               backgroundColor: const Color(0xFF00E676),
                                               foregroundColor: Colors.black,
-                                              disabledBackgroundColor: Colors.white12,
-                                              disabledForegroundColor: textMuted,
                                               padding: const EdgeInsets.symmetric(vertical: 10),
                                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                             ),
-                                            onPressed: hasPhone ? () => _callNumber(phoneText!) : null,
+                                            onPressed: () => _callNumber(phoneToUse),
                                             icon: const Icon(Icons.call_rounded, size: 16),
-                                            label: const Text(
-                                              'Call',
-                                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                            label: Text(
+                                              hasPhone ? 'Call Driver' : 'Call Dispatch',
+                                              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
                                             ),
                                           ),
                                         ),
@@ -1415,18 +1413,14 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                             style: ElevatedButton.styleFrom(
                                               backgroundColor: const Color(0xFF25D366),
                                               foregroundColor: Colors.white,
-                                              disabledBackgroundColor: Colors.white12,
-                                              disabledForegroundColor: textMuted,
                                               elevation: 0,
                                               padding: const EdgeInsets.symmetric(vertical: 10),
                                               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
                                             ),
-                                            onPressed: hasPhone
-                                                ? () => _openWhatsApp(
-                                                      phoneText!,
-                                                      'Hello, this is the Solace patient for your assigned emergency. Please confirm ETA.',
-                                                    )
-                                                : null,
+                                            onPressed: () => _openWhatsApp(
+                                              phoneToUse,
+                                              'Hello, this is the Solace patient for assigned emergency ${_requestId ?? ""}. Please confirm ETA.',
+                                            ),
                                             icon: const Icon(Icons.chat_rounded, size: 16),
                                             label: const Text(
                                               'WhatsApp',
@@ -1436,18 +1430,6 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                                         ),
                                       ],
                                     ),
-                                    if (!hasPhone) ...[
-                                      const SizedBox(height: 8),
-                                      Text(
-                                        'Direct driver contact will appear when the driver profile has a phone registered.',
-                                        style: TextStyle(
-                                          color: textMuted,
-                                          fontSize: 10.5,
-                                          fontStyle: FontStyle.italic,
-                                        ),
-                                        textAlign: TextAlign.center,
-                                      ),
-                                    ],
                                   ],
                                 ),
                               ),
@@ -1458,7 +1440,6 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                     ),
                   ),
                   const SizedBox(height: 14),
-
                   // 5. QUICK FIRST AID CARD (Only shown when waiting for ambulance!)
                   if (!_isCompleted && !_isCancelled)
                   Container(

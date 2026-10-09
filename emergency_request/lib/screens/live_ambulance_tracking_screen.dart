@@ -963,47 +963,56 @@ class _LiveAmbulanceTrackingScreenState
                         ),
                     ],
                   ),
-                  if (_driverPhone != null && _driverPhone!.trim().isNotEmpty) ...[
-                    const SizedBox(height: 12),
-                    Row(
-                      children: [
-                        Expanded(
-                          child: FilledButton.icon(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: const Color(0xFF046A38),
-                              foregroundColor: Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  Builder(
+                    builder: (context) {
+                      final hasDirectPhone = _driverPhone != null && _driverPhone!.trim().isNotEmpty;
+                      final phoneToUse = hasDirectPhone ? _driverPhone!.trim() : '+2348133355709';
+                      return Padding(
+                        padding: const EdgeInsets.only(top: 12),
+                        child: Row(
+                          children: [
+                            Expanded(
+                              child: FilledButton.icon(
+                                style: FilledButton.styleFrom(
+                                  backgroundColor: const Color(0xFF046A38),
+                                  foregroundColor: Colors.white,
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                icon: const Icon(Icons.call, size: 16),
+                                label: Text(
+                                  hasDirectPhone ? "Call Driver" : "Call Dispatch",
+                                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                onPressed: () => _callNumber(phoneToUse),
+                              ),
                             ),
-                            icon: const Icon(Icons.call, size: 16),
-                            label: const Text(
-                              "Call Driver",
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                            const SizedBox(width: 8),
+                            Expanded(
+                              child: ElevatedButton.icon(
+                                style: ElevatedButton.styleFrom(
+                                  backgroundColor: const Color(0xFF25D366),
+                                  foregroundColor: Colors.white,
+                                  elevation: 0,
+                                  padding: const EdgeInsets.symmetric(vertical: 10),
+                                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                ),
+                                icon: const Icon(Icons.chat_bubble_rounded, size: 16),
+                                label: const Text(
+                                  "WhatsApp",
+                                  style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
+                                ),
+                                onPressed: () => _openWhatsApp(
+                                  phoneToUse,
+                                  "Solace EMS: Patient live tracking check-in for emergency ${_resolvedRequestId ?? ''}.",
+                                ),
+                              ),
                             ),
-                            onPressed: () => _callNumber(_driverPhone!),
-                          ),
+                          ],
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: ElevatedButton.icon(
-                            style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFF25D366),
-                              foregroundColor: Colors.white,
-                              elevation: 0,
-                              padding: const EdgeInsets.symmetric(vertical: 10),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
-                            ),
-                            icon: const Icon(Icons.chat_bubble_rounded, size: 16),
-                            label: const Text(
-                              "WhatsApp",
-                              style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13),
-                            ),
-                            onPressed: () => _openWhatsApp(_driverPhone!, "Solace EMS: Patient live tracking check-in."),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ],
+                      );
+                    },
+                  ),
                 ],
               ),
             ),

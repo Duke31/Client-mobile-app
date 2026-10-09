@@ -304,6 +304,9 @@ class _RequestScreenState extends State<RequestScreen>
       if (_profileConditions != null && _profileConditions!.trim().isNotEmpty) {
         notesList.add('Conditions: $_profileConditions');
       }
+      if (intake.ageBand.isNotEmpty && intake.ageBand != 'unknown') {
+        notesList.add('Patient Age: ${intake.ageBand} yrs');
+      }
 
       final assembledNotes = notesList.isNotEmpty ? notesList.join(' | ') : '';
 
