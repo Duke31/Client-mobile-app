@@ -658,16 +658,44 @@ class _SubmittedScreenState extends State<SubmittedScreen>
   }
 
   Future<void> _openWhatsApp(String phone, String body) async {
+    HapticFeedback.heavyImpact();
     String clean = phone.replaceAll(RegExp(r'[^0-9]'), '');
     if (clean.startsWith('0') && clean.length == 11) {
       clean = '234${clean.substring(1)}';
     }
-    final uri = Uri.parse('https://wa.me/$clean?text=${Uri.encodeComponent(body)}');
+    if (clean.isEmpty) return;
+
+    final waMeUri = Uri.parse('https://wa.me/$clean?text=${Uri.encodeComponent(body)}');
+    final apiWaUri = Uri.parse('https://api.whatsapp.com/send?phone=$clean&text=${Uri.encodeComponent(body)}');
+
+    bool launched = false;
     try {
-      if (!await launchUrl(uri, mode: LaunchMode.externalApplication)) {
-        await launchUrl(uri, mode: LaunchMode.platformDefault);
-      }
+      launched = await launchUrl(waMeUri, mode: LaunchMode.externalApplication);
     } catch (_) {}
+
+    if (!launched) {
+      try {
+        launched = await launchUrl(apiWaUri, mode: LaunchMode.externalApplication);
+      } catch (_) {}
+    }
+
+    if (!launched) {
+      try {
+        launched = await launchUrl(waMeUri, mode: LaunchMode.platformDefault);
+      } catch (_) {}
+    }
+
+    if (!launched && mounted) {
+      await Clipboard.setData(ClipboardData(text: clean));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('WhatsApp contact copied: $clean'),
+          backgroundColor: const Color(0xFF25D366),
+          behavior: SnackBarBehavior.floating,
+          duration: const Duration(seconds: 4),
+        ),
+      );
+    }
   }
 
   void _returnHome() {
@@ -1290,119 +1318,159 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                           ),
                         ],
                         // Interactive Driver Card: allows patient or bystander to call assigned driver
-                        if (_driverPhone != null && _driverPhone!.isNotEmpty) ...[
-                          const SizedBox(height: 12),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                            decoration: BoxDecoration(
-                              color: innerChipBg,
-                              borderRadius: BorderRadius.circular(12),
-                              border: Border.all(
-                                color: const Color(0xFF00E676).withValues(alpha: 0.35),
-                              ),
-                            ),
-                            child: Row(
-                              children: [
-                                Container(
-                                  padding: const EdgeInsets.all(8),
+                        Builder(
+                          builder: (context) {
+                            final phoneToUse = (_driverPhone != null && _driverPhone!.trim().isNotEmpty)
+                                ? _driverPhone!.trim()
+                                : (_hospitalPhone != null && _hospitalPhone!.trim().isNotEmpty)
+                                    ? _hospitalPhone!.trim()
+                                    : null;
+
+                            if (phoneToUse != null) {
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 12),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF00E676).withValues(alpha: 0.2),
-                                    shape: BoxShape.circle,
-                                  ),
-                                  child: const Icon(
-                                    Icons.phone_in_talk_rounded,
-                                    size: 16,
-                                    color: Color(0xFF00E676),
-                                  ),
-                                ),
-                                const SizedBox(width: 10),
-                                Expanded(
-                                  child: InkWell(
-                                    onTap: () => _callNumber(_driverPhone!),
-                                    child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
-                                      children: [
-                                        Text(
-                                          'CALL ASSIGNED DRIVER',
-                                          style: TextStyle(
-                                            color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
-                                            fontSize: 9.5,
-                                            fontWeight: FontWeight.bold,
-                                            letterSpacing: 0.6,
-                                          ),
-                                        ),
-                                        Text(
-                                          _driverPhone!,
-                                          style: const TextStyle(
-                                            color: Color(0xFF00E676),
-                                            fontWeight: FontWeight.bold,
-                                            fontSize: 14,
-                                            letterSpacing: 0.5,
-                                          ),
-                                        ),
-                                      ],
+                                    color: innerChipBg,
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: const Color(0xFF00E676).withValues(alpha: 0.4),
                                     ),
                                   ),
-                                ),
-                                FilledButton.icon(
-                                  style: FilledButton.styleFrom(
-                                    backgroundColor: const Color(0xFF00E676),
-                                    foregroundColor: Colors.black,
-                                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                                    visualDensity: VisualDensity.compact,
-                                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                  child: Column(
+                                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                                    children: [
+                                      InkWell(
+                                        onTap: () => _callNumber(phoneToUse),
+                                        borderRadius: BorderRadius.circular(8),
+                                        child: Row(
+                                          children: [
+                                            Container(
+                                              padding: const EdgeInsets.all(8),
+                                              decoration: BoxDecoration(
+                                                color: const Color(0xFF00E676).withValues(alpha: 0.2),
+                                                shape: BoxShape.circle,
+                                              ),
+                                              child: const Icon(
+                                                Icons.phone_in_talk_rounded,
+                                                size: 18,
+                                                color: Color(0xFF00E676),
+                                              ),
+                                            ),
+                                            const SizedBox(width: 10),
+                                            Expanded(
+                                              child: Column(
+                                                crossAxisAlignment: CrossAxisAlignment.start,
+                                                children: [
+                                                  Text(
+                                                    'DRIVER / RESPONDER CONTACT',
+                                                    style: TextStyle(
+                                                      color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                                                      fontSize: 9.5,
+                                                      fontWeight: FontWeight.bold,
+                                                      letterSpacing: 0.6,
+                                                    ),
+                                                  ),
+                                                  Text(
+                                                    phoneToUse,
+                                                    style: const TextStyle(
+                                                      color: Color(0xFF00E676),
+                                                      fontWeight: FontWeight.w900,
+                                                      fontSize: 15,
+                                                      letterSpacing: 0.5,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                            const Icon(Icons.arrow_forward_ios_rounded, size: 14, color: Color(0xFF00E676)),
+                                          ],
+                                        ),
+                                      ),
+                                      const SizedBox(height: 10),
+                                      Row(
+                                        children: [
+                                          Expanded(
+                                            child: FilledButton.icon(
+                                              style: FilledButton.styleFrom(
+                                                backgroundColor: const Color(0xFF00E676),
+                                                foregroundColor: Colors.black,
+                                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                              ),
+                                              onPressed: () => _callNumber(phoneToUse),
+                                              icon: const Icon(Icons.call, size: 16),
+                                              label: const Text(
+                                                'Call Driver',
+                                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 8),
+                                          Expanded(
+                                            child: ElevatedButton.icon(
+                                              style: ElevatedButton.styleFrom(
+                                                backgroundColor: const Color(0xFF25D366),
+                                                foregroundColor: Colors.white,
+                                                elevation: 0,
+                                                padding: const EdgeInsets.symmetric(vertical: 10),
+                                                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                                              ),
+                                              onPressed: () => _openWhatsApp(phoneToUse, 'Solace EMS: Patient ready for pickup.'),
+                                              icon: const Icon(Icons.chat_bubble_rounded, size: 16),
+                                              label: const Text(
+                                                'WhatsApp',
+                                                style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12.5),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ],
                                   ),
-                                  onPressed: () => _callNumber(_driverPhone!),
-                                  icon: const Icon(Icons.call, size: 16),
-                                  label: const Text(
-                                    'Call Driver',
-                                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
-                                  ),
                                 ),
-                                const SizedBox(width: 6),
-                                Container(
+                              );
+                            } else if (_driverName != null) {
+                              return Padding(
+                                padding: const EdgeInsets.only(top: 10),
+                                child: Container(
+                                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                                   decoration: BoxDecoration(
-                                    color: const Color(0xFF25D366).withValues(alpha: 0.18),
+                                    color: innerChipBg,
                                     borderRadius: BorderRadius.circular(10),
+                                    border: Border.all(color: cardBorder),
                                   ),
-                                  child: IconButton(
-                                    icon: const Icon(Icons.chat_bubble_rounded, size: 18, color: Color(0xFF25D366)),
-                                    tooltip: 'WhatsApp Driver',
-                                    padding: const EdgeInsets.all(8),
-                                    constraints: const BoxConstraints(),
-                                    onPressed: () => _openWhatsApp(_driverPhone!, 'Solace EMS: Patient ready for pickup.'),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                        ] else if (_driverName != null) ...[
-                          const SizedBox(height: 10),
-                          Container(
-                            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                            decoration: BoxDecoration(
-                              color: innerChipBg,
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(color: cardBorder),
-                            ),
-                            child: Row(
-                              children: [
-                                const Icon(Icons.phone_in_talk_rounded, size: 15, color: Color(0xFF00E676)),
-                                const SizedBox(width: 8),
-                                Expanded(
-                                  child: Text(
-                                    'Direct Ambulance Dispatch Channel Active',
-                                    style: TextStyle(
-                                      color: textMuted,
-                                      fontSize: 11,
-                                      fontWeight: FontWeight.w600,
-                                    ),
+                                  child: Row(
+                                    children: [
+                                      const Icon(Icons.phone_in_talk_rounded, size: 16, color: Color(0xFF00E676)),
+                                      const SizedBox(width: 10),
+                                      Expanded(
+                                        child: Text(
+                                          'Direct Dispatch Hotline Active',
+                                          style: TextStyle(
+                                            color: textMuted,
+                                            fontSize: 11.5,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                      TextButton.icon(
+                                        onPressed: () => _callNumber('112'),
+                                        icon: const Icon(Icons.call, size: 14, color: Color(0xFF00E676)),
+                                        label: const Text(
+                                          'Call Dispatch',
+                                          style: TextStyle(color: Color(0xFF00E676), fontSize: 11, fontWeight: FontWeight.bold),
+                                        ),
+                                      ),
+                                    ],
                                   ),
                                 ),
-                              ],
-                            ),
-                          ),
-                        ],
+                              );
+                            }
+                            return const SizedBox.shrink();
+                          },
+                        ),
                       ],
                     ),
                   ),
