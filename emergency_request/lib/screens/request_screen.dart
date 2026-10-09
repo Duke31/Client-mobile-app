@@ -1,3 +1,4 @@
+import '../utils/error_sanitizer.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -373,8 +374,9 @@ class _RequestScreenState extends State<RequestScreen>
       } else {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Could not submit request: $e'),
+            content: Text(ErrorSanitizer.sanitize(e, fallback: 'Could not submit request. Please try again.')),
             backgroundColor: Colors.redAccent,
+            behavior: SnackBarBehavior.floating,
           ),
         );
       }

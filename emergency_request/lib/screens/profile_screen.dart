@@ -1,3 +1,4 @@
+import '../utils/error_sanitizer.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -155,7 +156,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Failed to save Medical ID: $e'),
+          content: Text(ErrorSanitizer.sanitize(e, fallback: 'Failed to save Medical ID. Please try again.')),
           backgroundColor: Colors.redAccent,
           behavior: SnackBarBehavior.floating,
         ),

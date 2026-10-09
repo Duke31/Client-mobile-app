@@ -1,3 +1,4 @@
+import '../utils/error_sanitizer.dart';
 import 'dart:async';
 import 'dart:convert';
 import 'package:http/http.dart' as http;
@@ -586,8 +587,9 @@ class _SubmittedScreenState extends State<SubmittedScreen>
       setState(() => _isCancelling = false);
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Cancel error: $e'),
+          content: Text(ErrorSanitizer.sanitize(e, fallback: 'Could not cancel request. Please try again.')),
           backgroundColor: Colors.redAccent,
+          behavior: SnackBarBehavior.floating,
         ),
       );
     }
