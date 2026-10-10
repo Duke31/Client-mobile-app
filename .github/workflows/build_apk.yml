@@ -143,3 +143,22 @@ jobs:
           name: solace-client-release
           path: build/app/outputs/flutter-apk/app-release.apk
           retention-days: 14
+
+      - name: Push APK to Supabase Storage
+        if: success()
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && [ -n "$SUPABASE_URL" ]; then
+            echo "Uploading release APK directly to Supabase storage app-releases bucket..."
+            curl -s -f -X POST \
+              "${SUPABASE_URL}/storage/v1/object/app-releases/solace-v1.0.apk" \
+              -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "Content-Type: application/vnd.android.package-archive" \
+              -H "x-upsert: true" \
+              --data-binary "@build/app/outputs/flutter-apk/app-release.apk"
+            echo "Successfully deployed solace-v1.0.apk to Supabase Storage."
+          else
+            echo "Notice: SUPABASE_SERVICE_ROLE_KEY secret not set in GitHub repository secrets. Skipping direct storage push."
+          fi
