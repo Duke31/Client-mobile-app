@@ -27,21 +27,16 @@ jobs:
           sed -i '/interactive: false,/d' emergency_request/lib/screens/submitted_screen.dart || true
           sed -i '/interactive: false,/d' lib/screens/submitted_screen.dart || true
 
-          # Fix 1: Replace old patientLatitude/patientLongitude named params with patientLocation: LatLng(...)
           # Targets the LiveAmbulanceTrackingScreen(...) call block in submitted_screen.dart
           for f in emergency_request/lib/screens/submitted_screen.dart lib/screens/submitted_screen.dart; do
             [ -f "$f" ] || continue
-            # Remove patientLatitude line
             sed -i '/patientLatitude:/d' "$f"
-            # Remove patientLongitude line
             sed -i '/patientLongitude:/d' "$f"
-            # If patientLocation is missing, insert it after the requestId: line inside the tracking screen call
             if grep -q 'patientLocation:' "$f"; then
               echo "patientLocation already present in $f"
             else
               sed -i '/requestId: id,/a\          patientLocation: (widget.latitude != null \&\& widget.longitude != null) ? LatLng(widget.latitude!, widget.longitude!) : const LatLng(0, 0),' "$f"
             fi
-            # Fix 2: Replace bare $vehicleLabel (no underscore) with $_vehicleLabel
             sed -i 's/\$vehicleLabel)/\$_vehicleLabel)/g' "$f"
             sed -i "s/\$vehicleLabel'/\$_vehicleLabel'/g" "$f"
           done
@@ -151,14 +146,27 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && [ -n "$SUPABASE_URL" ]; then
-            echo "Uploading release APK directly to Supabase storage app-releases bucket..."
-            curl -s -f -X POST \
-              "${SUPABASE_URL}/storage/v1/object/app-releases/solace-v1.0.apk" \
+            echo "Uploading release APK to Supabase storage app-releases bucket..."
+            # Strip trailing slashes from URL
+            CLEAN_URL="${SUPABASE_URL%/}"
+            
+            HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/upload_response.json -X POST \
+              "${CLEAN_URL}/storage/v1/object/app-releases/solace-v1.0.apk" \
               -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+              -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
               -H "Content-Type: application/vnd.android.package-archive" \
               -H "x-upsert: true" \
-              --data-binary "@build/app/outputs/flutter-apk/app-release.apk"
-            echo "Successfully deployed solace-v1.0.apk to Supabase Storage."
+              --data-binary "@build/app/outputs/flutter-apk/app-release.apk")
+            
+            echo "Supabase HTTP Response Code: $HTTP_CODE"
+            cat /tmp/upload_response.json || true
+            echo ""
+
+            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
+              echo "SUCCESS: solace-v1.0.apk deployed to Supabase Storage."
+            else
+              echo "WARNING: Supabase upload returned HTTP $HTTP_CODE. Check bucket permissions for app-releases."
+            fi
           else
-            echo "Notice: SUPABASE_SERVICE_ROLE_KEY secret not set in GitHub repository secrets. Skipping direct storage push."
+            echo "Notice: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_URL secret not set. Skipping direct storage push."
           fi
