@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'package:flutter/material.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../services/client_request_detail.dart';
@@ -38,6 +39,7 @@ class _LiveAmbulanceTrackingScreenState
   RealtimeChannel? _globalChannel;
   RealtimeChannel? _driverDbChannel;
   Timer? _pollingTimer;
+  StreamSubscription<Position>? _patientGpsSub;
 
   String? _resolvedRequestId;
   String? _driverId;
@@ -101,6 +103,7 @@ class _LiveAmbulanceTrackingScreenState
 
     _loadData();
     _subscribeChannels();
+    _initPatientGpsStream();
 
     // Polling fallback every 3 seconds for rock-solid stability
     _pollingTimer = Timer.periodic(const Duration(seconds: 3), (_) {
@@ -113,10 +116,59 @@ class _LiveAmbulanceTrackingScreenState
     _animController.dispose();
     _pollingTimer?.cancel();
     _etaDebounceTimer?.cancel();
+    _patientGpsSub?.cancel();
     if (_trackingChannel != null) _supabase.removeChannel(_trackingChannel!);
     if (_globalChannel != null) _supabase.removeChannel(_globalChannel!);
     if (_driverDbChannel != null) _supabase.removeChannel(_driverDbChannel!);
     super.dispose();
+  }
+
+  void _initPatientGpsStream() {
+    try {
+      _patientGpsSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+        ),
+      ).listen((Position pos) async {
+        if (!mounted) return;
+        final lat = pos.latitude;
+        final lng = pos.longitude;
+
+        setState(() {
+          _dbPatientLocation = LatLng(lat, lng);
+        });
+
+        final reqId = _resolvedRequestId ?? widget.requestId;
+        if (reqId.isNotEmpty) {
+          // Broadcast to driver console
+          try {
+            _trackingChannel?.sendBroadcastMessage(
+              event: 'patient_location_update',
+              payload: {
+                'request_id': reqId,
+                'lat': lat,
+                'lng': lng,
+                'updated_at': DateTime.now().toUtc().toIso8601String(),
+              },
+            );
+          } catch (_) {}
+
+          // Persist coordinates
+          try {
+            await _supabase.rpc('update_patient_live_location', params: {
+              'p_request_id': reqId,
+              'p_lat': lat,
+              'p_lng': lng,
+            });
+          } catch (_) {}
+        }
+      }, onError: (e) {
+        debugPrint("Live tracking patient GPS stream error: $e");
+      });
+    } catch (e) {
+      debugPrint("Live tracking could not start GPS stream: $e");
+    }
   }
 
   // 1. Initial Load: Resolve request and driver info
