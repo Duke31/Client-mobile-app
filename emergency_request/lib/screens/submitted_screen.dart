@@ -10,6 +10,7 @@ import '../theme/app_theme.dart';
 import '../services/client_request_detail.dart';
 import 'home_screen.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:geolocator/geolocator.dart';
 import 'live_ambulance_tracking_screen.dart';
 
 class SubmittedScreen extends StatefulWidget {
@@ -54,6 +55,8 @@ class _SubmittedScreenState extends State<SubmittedScreen>
 
   Timer? _pollTimer;
   StreamSubscription<List<Map<String, dynamic>>>? _realtimeSub;
+  StreamSubscription<Position>? _patientMotionSub;
+  RealtimeChannel? _liveLocationBroadcastChan;
   bool _isCancelling = false;
 
   late AnimationController _radarController;
@@ -109,9 +112,15 @@ class _SubmittedScreenState extends State<SubmittedScreen>
 
   bool get _canClientCancel {
     final s = _currentStatus.toLowerCase();
-    return s.contains('pending') ||
-        s.contains('hospital confirmed') ||
-        s.contains('driver assigned');
+    if (s.contains('picked up') ||
+        s.contains('to hospital') ||
+        s.contains('intake') ||
+        s.contains('complete') ||
+        s.contains('cancel') ||
+        s.contains('fail')) {
+      return false;
+    }
+    return true;
   }
 
   bool get _canTrackLive {
@@ -188,14 +197,85 @@ class _SubmittedScreenState extends State<SubmittedScreen>
     _pollTimer = null;
     _realtimeSub?.cancel();
     _realtimeSub = null;
+    _patientMotionSub?.cancel();
+    _patientMotionSub = null;
+    try {
+      _liveLocationBroadcastChan?.unsubscribe();
+      _liveLocationBroadcastChan = null;
+    } catch (_) {}
     try {
       _statusBroadcastChannel?.unsubscribe();
       _statusBroadcastChannel = null;
     } catch (_) {}
   }
 
+  void _startPatientLiveLocationStream(String reqId) {
+    _patientMotionSub?.cancel();
+    try {
+      _liveLocationBroadcastChan?.unsubscribe();
+      _liveLocationBroadcastChan = _supabase.channel('request_tracking_$reqId')..subscribe();
+    } catch (_) {}
+
+    try {
+      _patientMotionSub = Geolocator.getPositionStream(
+        locationSettings: const LocationSettings(
+          accuracy: LocationAccuracy.high,
+          distanceFilter: 5,
+        ),
+      ).listen((Position pos) async {
+        if (!mounted) return;
+        if (_isCompleted || _isCancelled) {
+          _patientMotionSub?.cancel();
+          return;
+        }
+
+        final lat = pos.latitude;
+        final lng = pos.longitude;
+
+        setState(() {
+          _patientLat = lat;
+          _patientLng = lng;
+        });
+
+        // 1. Broadcast immediately to driver and dispatcher desks
+        try {
+          _liveLocationBroadcastChan?.sendBroadcastMessage(
+            event: 'patient_location_update',
+            payload: {
+              'request_id': reqId,
+              'lat': lat,
+              'lng': lng,
+              'updated_at': DateTime.now().toUtc().toIso8601String(),
+            },
+          );
+        } catch (_) {}
+
+        // 2. Persist to database so subsequent queries and refreshes have new coordinates
+        try {
+          await _supabase.rpc('update_patient_live_location', params: {
+            'p_request_id': reqId,
+            'p_lat': lat,
+            'p_lng': lng,
+          });
+        } catch (_) {
+          try {
+            await _supabase
+                .from('emergency_requests')
+                .update({'patient_lat': lat, 'patient_lng': lng})
+                .eq('id', reqId);
+          } catch (_) {}
+        }
+      }, onError: (e) {
+        debugPrint('Patient motion stream error: $e');
+      });
+    } catch (e) {
+      debugPrint('Error starting patient motion stream: $e');
+    }
+  }
+
   void _startStatusMonitoring(String reqId) {
     _refreshStatus(reqId);
+    _startPatientLiveLocationStream(reqId);
     _pollTimer?.cancel();
     _pollTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _refreshStatus(reqId);
@@ -515,7 +595,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
     if (!_canClientCancel) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Cannot cancel: Ambulance is already en route with patient.'),
+          content: Text('Cannot cancel: Ambulance has already picked up the patient.'),
           backgroundColor: Colors.orange,
         ),
       );
@@ -523,63 +603,178 @@ class _SubmittedScreenState extends State<SubmittedScreen>
     }
 
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final shouldCancel = await showDialog<bool>(
+    String selectedReason = 'Condition stabilized / false alarm';
+    final customController = TextEditingController();
+
+    final result = await showDialog<String>(
       context: context,
+      barrierDismissible: false,
       builder: (dialogContext) {
-        return AlertDialog(
-          backgroundColor: isDark ? const Color(0xFF07193F) : Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-          title: Text(
-            'Cancel Emergency Request?',
-            style: TextStyle(
-              color: isDark ? Colors.white : const Color(0xFF0F172A),
-              fontWeight: FontWeight.bold,
-            ),
-          ),
-          content: Text(
-            'Are you sure you want to cancel this emergency dispatch? Central medical dispatch and responding paramedics will stand down.',
-            style: TextStyle(
-              color: isDark ? Colors.white70 : const Color(0xFF475569),
-              fontSize: 13,
-              height: 1.4,
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(
-                'Keep Active',
-                style: TextStyle(color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7)),
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final reasons = [
+              'Condition stabilized / false alarm',
+              'Arranged alternate transport',
+              'Ambulance taking too long',
+              'Accidental SOS trigger',
+              'Other reason',
+            ];
+
+            return AlertDialog(
+              backgroundColor: isDark ? const Color(0xFF07193F) : Colors.white,
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+              title: Row(
+                children: [
+                  const Icon(Icons.cancel_outlined, color: Colors.redAccent, size: 24),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Text(
+                      'Cancel Emergency?',
+                      style: TextStyle(
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                        fontWeight: FontWeight.bold,
+                        fontSize: 18,
+                      ),
+                    ),
+                  ),
+                ],
               ),
-            ),
-            FilledButton(
-              style: FilledButton.styleFrom(
-                backgroundColor: const Color(0xFFD32F2F),
-                foregroundColor: Colors.white,
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Please let the dispatch team and responders know why you are cancelling:',
+                      style: TextStyle(
+                        color: isDark ? Colors.white70 : const Color(0xFF475569),
+                        fontSize: 13,
+                        height: 1.4,
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+                    ...reasons.map((r) {
+                      final isSelected = selectedReason == r;
+                      return InkWell(
+                        onTap: () {
+                          setDialogState(() => selectedReason = r);
+                        },
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          margin: const EdgeInsets.only(bottom: 6),
+                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                          decoration: BoxDecoration(
+                            color: isSelected
+                                ? (isDark ? const Color(0xFF00D4FF).withOpacity(0.15) : const Color(0xFF0284C7).withOpacity(0.1))
+                                : (isDark ? Colors.white.withOpacity(0.04) : Colors.black.withOpacity(0.02)),
+                            border: Border.all(
+                              color: isSelected
+                                  ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                                  : (isDark ? Colors.white10 : Colors.black12),
+                            ),
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                isSelected ? Icons.radio_button_checked : Icons.radio_button_off,
+                                size: 16,
+                                color: isSelected
+                                    ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                                    : (isDark ? Colors.white38 : Colors.black38),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(
+                                  r,
+                                  style: TextStyle(
+                                    fontSize: 12.5,
+                                    fontWeight: isSelected ? FontWeight.bold : FontWeight.normal,
+                                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    }),
+                    if (selectedReason == 'Other reason') ...[
+                      const SizedBox(height: 8),
+                      TextField(
+                        controller: customController,
+                        maxLines: 2,
+                        style: TextStyle(color: isDark ? Colors.white : Colors.black, fontSize: 13),
+                        decoration: InputDecoration(
+                          hintText: 'Enter specific reason...',
+                          hintStyle: TextStyle(color: isDark ? Colors.white38 : Colors.black38, fontSize: 12),
+                          filled: true,
+                          fillColor: isDark ? Colors.white.withOpacity(0.05) : Colors.black.withOpacity(0.03),
+                          border: OutlineInputBorder(
+                            borderRadius: BorderRadius.circular(8),
+                            borderSide: BorderSide(color: isDark ? Colors.white24 : Colors.black26),
+                          ),
+                          contentPadding: const EdgeInsets.all(10),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
               ),
-              onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: const Text('Yes, Cancel Request'),
-            ),
-          ],
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(null),
+                  child: Text(
+                    'Keep Active',
+                    style: TextStyle(color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7)),
+                  ),
+                ),
+                FilledButton(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFFD32F2F),
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () {
+                    String finalReason = selectedReason;
+                    if (selectedReason == 'Other reason' && customController.text.trim().isNotEmpty) {
+                      finalReason = customController.text.trim();
+                    }
+                    Navigator.of(dialogContext).pop(finalReason);
+                  },
+                  child: const Text('Confirm Cancel'),
+                ),
+              ],
+            );
+          },
         );
       },
     );
 
-    if (shouldCancel == true && mounted) {
-      await _executeCancelRpc();
+    if (result != null && mounted) {
+      await _executeCancelWithReason(result);
     }
   }
 
-  Future<void> _executeCancelRpc() async {
+  Future<void> _executeCancelWithReason(String reason) async {
     final idToCancel = _requestId;
     if (idToCancel == null || idToCancel.isEmpty) return;
     setState(() => _isCancelling = true);
     try {
-      await _supabase.rpc('transition_emergency_state', params: {
-        'request_id': idToCancel,
-        'new_state': 'Cancelled / failed',
-        'actor_role': _actorRole,
-      });
+      // 1. Primary RPC: client_cancel_emergency_request (records reason and notifies staff)
+      try {
+        await _supabase.rpc('client_cancel_emergency_request', params: {
+          'p_request_id': idToCancel,
+          'p_reason': reason,
+        });
+      } catch (rpcErr) {
+        // Fallback to transition_emergency_state if custom RPC unavailable
+        await _supabase.rpc('transition_emergency_state', params: {
+          'request_id': idToCancel,
+          'new_state': 'Cancelled / failed',
+          'actor_role': _actorRole,
+        });
+      }
+
       if (!mounted) return;
       _returnHome();
     } catch (e) {
