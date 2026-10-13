@@ -170,6 +170,8 @@ class _HomeScreenState extends State<HomeScreen> {
           onTriggerSos: () => setState(() => _currentIndex = 1),
           onOpenMissionTracker: () => setState(() => _currentIndex = 1),
           onTriggerFastPass: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
+          onOpenShieldTab: () => setState(() => _currentIndex = 4),
+          onOpenInsightsTab: () => setState(() => _currentIndex = 2),
         ),
 
         // Tab 1: SOS Engine or Live Mission Tracker
@@ -211,6 +213,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
         // Tab 2: Health Library & Red Flags
         HealthLibraryTab(
+          profile: _profile,
           onDispatchCondition: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
         ),
 
