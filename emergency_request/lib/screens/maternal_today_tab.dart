@@ -869,7 +869,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               _buildDetailMetricRow('Clinical Trimester', _trimesterLabel, isDark),
               _buildDetailMetricRow('Baby Size Comparison', _weeks >= 37 ? 'Watermelon (~2.9 kg)' : 'Papaya (~1.8 kg)', isDark),
               _buildDetailMetricRow('Rare Blood Shield', widget.profile.bloodGroup ?? 'O-Negative', isDark),
-              _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospital ?? 'LifeCare Private Clinic', isDark),
+              _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalName ?? 'LifeCare Private Clinic', isDark),
               const SizedBox(height: 20),
               FilledButton(
                 style: FilledButton.styleFrom(
