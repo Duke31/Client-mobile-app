@@ -6,11 +6,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/member_profile.dart';
 import '../services/client_request_detail.dart';
 import '../theme/app_theme.dart';
-import 'dashboard_tab.dart';
-import 'health_library_tab.dart';
 import 'history_screen.dart';
 import 'profile_screen.dart';
 import 'request_screen.dart';
+import 'submitted_screen.dart';
+import 'maternal_today_tab.dart';
+import 'health_library_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -37,7 +38,7 @@ class _HomeScreenState extends State<HomeScreen> {
     _fetchProfile();
     _checkActiveEmergency();
 
-    _activeCheckTimer = Timer.periodic(const Duration(seconds: 4), (_) {
+    _activeCheckTimer = Timer.periodic(const Duration(seconds: 3), (_) {
       _checkActiveEmergency();
     });
 
@@ -88,16 +89,19 @@ class _HomeScreenState extends State<HomeScreen> {
             'created_at, client_user_id, hospital_id, driver_id',
           )
           .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
-          .neq('status', 'Completed')
-          .neq('status', 'Cancelled / failed')
-          .neq('status', 'completed')
-          .neq('status', 'cancelled')
           .order('created_at', ascending: false)
-          .limit(1);
+          .limit(20);
 
       Map<String, dynamic>? active;
-      if (list is List && list.isNotEmpty) {
-        active = Map<String, dynamic>.from(list.first as Map);
+      if (list is List) {
+        for (final row in List<Map<String, dynamic>>.from(list)) {
+          final st = (row['status']?.toString() ?? '').toLowerCase();
+          if (st.contains('completed') || st.contains('cancel') || st.contains('failed')) {
+            continue;
+          }
+          active = row;
+          break;
+        }
       }
 
       if (active != null && active['id'] != null) {
@@ -114,11 +118,16 @@ class _HomeScreenState extends State<HomeScreen> {
       }
 
       if (!mounted) return;
+      final hadActive = _activeEmergency != null;
       setState(() {
         _activeEmergency = active;
+        // If an active emergency completed/cancelled while on tracker, return to primary tab
+        if (hadActive && active == null && _currentIndex == 1 && !_profile.isMaternal) {
+          _currentIndex = 0;
+        }
       });
     } catch (e) {
-      debugPrint('Active emergency check error: $e');
+      debugPrint('Active emergency check notice: $e');
     }
   }
 
@@ -128,7 +137,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _dispatchConditionFromOtherTab(String condition, int priority) {
-    setState(() => _currentIndex = 1); // Switch to SOS tab
+    final targetSosIndex = _profile.isMaternal ? 1 : 0;
+    setState(() => _currentIndex = targetSosIndex);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _requestScreenKey.currentState?.triggerConditionDispatch(condition, priority);
     });
@@ -138,22 +148,185 @@ class _HomeScreenState extends State<HomeScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
     final hasActive = _activeEmergency != null;
+    final isMaternal = _profile.isMaternal;
 
     final bgColor = isDark ? AppTheme.darkBg : AppTheme.lightBg;
     final navBg = isDark ? AppTheme.darkCard : Colors.white;
     final navBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFCBD5E1);
-    final activeColor = isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7);
+    final activeColor = isMaternal
+        ? const Color(0xFFFF8A65)
+        : (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7));
     final unselectedColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
 
-    final pages = [
-      // Tab 0: Role-Adaptive Clinical Care Dashboard
-      DashboardTab(
-        profile: _profile,
-        onTriggerSos: () => setState(() => _currentIndex = 1),
-        onTriggerFastPass: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
-      ),
+    // ─────────────────────────────────────────────────────────────────────────
+    // A. MATERNAL CARE SUITE (5 Tabs: Today, SOS/Mission, Insights, Records, Shield)
+    // ─────────────────────────────────────────────────────────────────────────
+    if (isMaternal) {
+      final maternalPages = [
+        // Tab 0: Obstetric Maternal Dashboard (Matching reference images)
+        MaternalTodayTab(
+          profile: _profile,
+          activeEmergency: _activeEmergency,
+          onTriggerSos: () => setState(() => _currentIndex = 1),
+          onOpenMissionTracker: () => setState(() => _currentIndex = 1),
+          onTriggerFastPass: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
+        ),
 
-      // Tab 1: Tactical SOS Engine & Live Telemetry Control Room
+        // Tab 1: SOS Engine or Live Mission Tracker
+        hasActive
+            ? SubmittedScreen(
+                key: ValueKey(_activeEmergency!['id']),
+                requestId: _activeEmergency!['id']?.toString(),
+                address: _activeEmergency!['patient_address']?.toString(),
+                patientAddress: _activeEmergency!['patient_address']?.toString(),
+                latitude: (_activeEmergency!['patient_lat'] as num?)?.toDouble(),
+                longitude: (_activeEmergency!['patient_lng'] as num?)?.toDouble(),
+                onReturnHome: () {
+                  setState(() {
+                    _activeEmergency = null;
+                    _currentIndex = 0;
+                  });
+                  _checkActiveEmergency();
+                },
+              )
+            : RequestScreen(
+                key: _requestScreenKey,
+                initialProfile: _profile,
+                onEmergencyCreated: (requestId, address, [lat, lng]) {
+                  HapticFeedback.heavyImpact();
+                  setState(() {
+                    _activeEmergency = {
+                      'id': requestId,
+                      'patient_address': address,
+                      'patient_lat': lat,
+                      'patient_lng': lng,
+                      'status': 'Requested',
+                      'created_at': DateTime.now().toIso8601String(),
+                    };
+                    _currentIndex = 1;
+                  });
+                  _checkActiveEmergency();
+                },
+              ),
+
+        // Tab 2: Health Library & Red Flags
+        HealthLibraryTab(
+          onDispatchCondition: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
+        ),
+
+        // Tab 3: History & Reviews
+        HistoryScreen(
+          onSwitchToSos: () => setState(() => _currentIndex = 1),
+        ),
+
+        // Tab 4: Maternal Shield & Medical ID
+        ProfileScreen(
+          onProfileUpdated: () {
+            _fetchProfile();
+          },
+        ),
+      ];
+
+      return Scaffold(
+        backgroundColor: bgColor,
+        body: IndexedStack(
+          index: _currentIndex.clamp(0, maternalPages.length - 1),
+          children: maternalPages,
+        ),
+        bottomNavigationBar: Container(
+          decoration: BoxDecoration(
+            color: navBg,
+            border: Border(top: BorderSide(color: navBorder, width: 1.0)),
+            boxShadow: isDark
+                ? []
+                : [
+                    BoxShadow(
+                      color: Colors.black.withValues(alpha: 0.05),
+                      blurRadius: 10,
+                      offset: const Offset(0, -2),
+                    ),
+                  ],
+          ),
+          child: NavigationBarTheme(
+            data: NavigationBarThemeData(
+              backgroundColor: navBg,
+              indicatorColor: activeColor.withValues(alpha: isDark ? 0.22 : 0.16),
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+              labelTextStyle: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return TextStyle(
+                    color: activeColor,
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0.2,
+                  );
+                }
+                return TextStyle(
+                  color: unselectedColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w500,
+                );
+              }),
+              iconTheme: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.selected)) {
+                  return IconThemeData(color: activeColor, size: 24);
+                }
+                return IconThemeData(color: unselectedColor, size: 22);
+              }),
+            ),
+            child: NavigationBar(
+              selectedIndex: _currentIndex.clamp(0, 4),
+              onDestinationSelected: _onTabSelected,
+              backgroundColor: navBg,
+              elevation: 0,
+              destinations: [
+                const NavigationDestination(
+                  icon: Icon(Icons.calendar_today_outlined),
+                  selectedIcon: Icon(Icons.calendar_today_rounded),
+                  label: 'Today',
+                ),
+                NavigationDestination(
+                  icon: Badge(
+                    isLabelVisible: hasActive,
+                    backgroundColor: const Color(0xFFFF334B),
+                    smallSize: 8,
+                    child: const Icon(Icons.emergency_outlined),
+                  ),
+                  selectedIcon: Badge(
+                    isLabelVisible: hasActive,
+                    backgroundColor: const Color(0xFFFF334B),
+                    smallSize: 8,
+                    child: const Icon(Icons.emergency_rounded, color: Color(0xFFFF334B)),
+                  ),
+                  label: hasActive ? 'Live Mission' : 'SOS Engine',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.grid_view_outlined),
+                  selectedIcon: Icon(Icons.grid_view_rounded),
+                  label: 'Insights',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.history_rounded),
+                  selectedIcon: Icon(Icons.history_edu_rounded),
+                  label: 'Records',
+                ),
+                const NavigationDestination(
+                  icon: Icon(Icons.shield_outlined),
+                  selectedIcon: Icon(Icons.shield_rounded),
+                  label: 'My Shield',
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    // ─────────────────────────────────────────────────────────────────────────
+    // B. STANDARD / NORMAL EMERGENCY PATIENT (The Loved Classic UI: 4 Tabs)
+    // ─────────────────────────────────────────────────────────────────────────
+    final standardPages = [
+      // Tab 0: Primary Mapbox Emergency SOS Request Screen (Instant 1-Tap Dispatch)
       RequestScreen(
         key: _requestScreenKey,
         initialProfile: _profile,
@@ -168,23 +341,39 @@ class _HomeScreenState extends State<HomeScreen> {
               'status': 'Requested',
               'created_at': DateTime.now().toIso8601String(),
             };
-            _currentIndex = 1;
+            _currentIndex = 1; // Immediate live route to Tactical Tracker Desk!
           });
           _checkActiveEmergency();
         },
       ),
 
+      // Tab 1: Live Tactical Mission Tracker Desk (Milestones, Hospital, Driver, Radar)
+      hasActive
+          ? SubmittedScreen(
+              key: ValueKey(_activeEmergency!['id']),
+              requestId: _activeEmergency!['id']?.toString(),
+              address: _activeEmergency!['patient_address']?.toString(),
+              patientAddress: _activeEmergency!['patient_address']?.toString(),
+              latitude: (_activeEmergency!['patient_lat'] as num?)?.toDouble(),
+              longitude: (_activeEmergency!['patient_lng'] as num?)?.toDouble(),
+              onReturnHome: () {
+                setState(() {
+                  _activeEmergency = null;
+                  _currentIndex = 0;
+                });
+                _checkActiveEmergency();
+              },
+            )
+          : _NoActiveMissionView(
+              onTriggerSos: () => setState(() => _currentIndex = 0),
+            ),
+
       // Tab 2: Closed Incident Records & Patient Service Reviews
       HistoryScreen(
-        onSwitchToSos: () => setState(() => _currentIndex = 1),
+        onSwitchToSos: () => setState(() => _currentIndex = 0),
       ),
 
-      // Tab 3: Health Library & Red Flags
-      HealthLibraryTab(
-        onDispatchCondition: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
-      ),
-
-      // Tab 4: Member Medical ID & Care Plan Shield
+      // Tab 3: Member Medical ID & Care Plan Shield
       ProfileScreen(
         onProfileUpdated: () {
           _fetchProfile();
@@ -195,15 +384,13 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       backgroundColor: bgColor,
       body: IndexedStack(
-        index: _currentIndex,
-        children: pages,
+        index: _currentIndex.clamp(0, standardPages.length - 1),
+        children: standardPages,
       ),
       bottomNavigationBar: Container(
         decoration: BoxDecoration(
           color: navBg,
-          border: Border(
-            top: BorderSide(color: navBorder, width: 1.0),
-          ),
+          border: Border(top: BorderSide(color: navBorder, width: 1.0)),
           boxShadow: isDark
               ? []
               : [
@@ -223,7 +410,7 @@ class _HomeScreenState extends State<HomeScreen> {
               if (states.contains(WidgetState.selected)) {
                 return TextStyle(
                   color: activeColor,
-                  fontSize: 10.5,
+                  fontSize: 11,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.2,
                 );
@@ -242,56 +429,145 @@ class _HomeScreenState extends State<HomeScreen> {
             }),
           ),
           child: NavigationBar(
-            selectedIndex: _currentIndex,
+            selectedIndex: _currentIndex.clamp(0, 3),
             onDestinationSelected: _onTabSelected,
             backgroundColor: navBg,
             elevation: 0,
             destinations: [
-              // Tab 0: Dashboard
               const NavigationDestination(
-                icon: Icon(Icons.dashboard_outlined),
-                selectedIcon: Icon(Icons.dashboard_rounded),
-                label: 'Care Desk',
+                icon: Icon(Icons.emergency_rounded),
+                selectedIcon: Icon(Icons.emergency_rounded),
+                label: 'Emergency SOS',
               ),
-
-              // Tab 1: SOS Engine / Live Mission
               NavigationDestination(
                 icon: Badge(
                   isLabelVisible: hasActive,
                   backgroundColor: const Color(0xFFFF334B),
                   smallSize: 8,
-                  child: const Icon(Icons.emergency_outlined),
+                  child: const Icon(Icons.radar_rounded),
                 ),
                 selectedIcon: Badge(
                   isLabelVisible: hasActive,
                   backgroundColor: const Color(0xFFFF334B),
                   smallSize: 8,
-                  child: const Icon(Icons.emergency_rounded, color: Color(0xFFFF334B)),
+                  child: const Icon(Icons.radar_rounded, color: Color(0xFF00D4FF)),
                 ),
-                label: hasActive ? 'Live Mission' : 'SOS Engine',
+                label: hasActive ? 'Live Mission' : 'Mission Desk',
               ),
-
-              // Tab 2: Records & Reviews
               const NavigationDestination(
                 icon: Icon(Icons.history_rounded),
                 selectedIcon: Icon(Icons.history_edu_rounded),
                 label: 'Records',
               ),
-
-              // Tab 3: Health Library
-              const NavigationDestination(
-                icon: Icon(Icons.health_and_safety_outlined),
-                selectedIcon: Icon(Icons.health_and_safety_rounded),
-                label: 'Red Flags',
-              ),
-
-              // Tab 4: Member Profile & Shield
               const NavigationDestination(
                 icon: Icon(Icons.shield_outlined),
                 selectedIcon: Icon(Icons.shield_rounded),
                 label: 'My Shield',
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _NoActiveMissionView extends StatelessWidget {
+  final VoidCallback onTriggerSos;
+  const _NoActiveMissionView({required this.onTriggerSos});
+
+  @override
+  Widget build(BuildContext context) {
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
+    final cardBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFCBD5E1);
+    final textPrimary = isDark ? Colors.white : const Color(0xFF0F172A);
+    final textMuted = isDark ? Colors.white60 : const Color(0xFF64748B);
+
+    return Scaffold(
+      backgroundColor: isDark ? AppTheme.darkBg : AppTheme.lightBg,
+      body: SafeArea(
+        child: Center(
+          child: Padding(
+            padding: const EdgeInsets.all(28.0),
+            child: Container(
+              padding: const EdgeInsets.all(24),
+              decoration: BoxDecoration(
+                color: cardColor,
+                borderRadius: BorderRadius.circular(24),
+                border: Border.all(color: cardBorder),
+                boxShadow: isDark
+                    ? []
+                    : [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.05),
+                          blurRadius: 16,
+                          offset: const Offset(0, 4),
+                        ),
+                      ],
+              ),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(18),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF00D4FF).withValues(alpha: 0.15),
+                      shape: BoxShape.circle,
+                    ),
+                    child: const Icon(
+                      Icons.sensors_off_rounded,
+                      color: Color(0xFF00D4FF),
+                      size: 44,
+                    ),
+                  ),
+                  const SizedBox(height: 18),
+                  Text(
+                    'No Active Emergency Run',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.w900,
+                      color: textPrimary,
+                    ),
+                  ),
+                  const SizedBox(height: 8),
+                  Text(
+                    'Your telemetry and response radar are on high standby. When an ambulance is dispatched, real-time vehicle movement, hospital reservation, and paramedic contact cards will appear here.',
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      color: textMuted,
+                      height: 1.4,
+                    ),
+                  ),
+                  const SizedBox(height: 22),
+                  SizedBox(
+                    width: double.infinity,
+                    height: 48,
+                    child: FilledButton.icon(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: const Color(0xFFD32F2F),
+                        foregroundColor: Colors.white,
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                      ),
+                      onPressed: onTriggerSos,
+                      icon: const Icon(Icons.emergency_rounded, size: 20),
+                      label: const Text(
+                        'DISPATCH EMERGENCY AMBULANCE',
+                        style: TextStyle(
+                          fontSize: 12.5,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
           ),
         ),
       ),
