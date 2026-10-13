@@ -58,6 +58,11 @@ class _SubmittedScreenState extends State<SubmittedScreen>
   StreamSubscription<Position>? _patientMotionSub;
   RealtimeChannel? _liveLocationBroadcastChan;
   bool _isCancelling = false;
+  int _userRating = 5;
+  final Set<String> _selectedFeedbackTags = {};
+  final TextEditingController _feedbackController = TextEditingController();
+  bool _feedbackSubmitted = false;
+  bool _isSubmittingFeedback = false;
 
   late AnimationController _radarController;
   late Animation<double> _radarScale;
@@ -167,6 +172,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
   @override
   void dispose() {
     _radarController.dispose();
+    _feedbackController.dispose();
     _stopMonitoring();
     try {
       _statusBroadcastChannel?.unsubscribe();
@@ -1213,6 +1219,8 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                       ],
                     ),
                   ),
+                  if (_isCompleted)
+                    _buildLiveFeedbackCard(isDark, cardColor, cardBorder, textPrimary, textMuted),
                 ] else ...[
                   // 2. SIMPLIFIED EMERGENCY STATUS CARD (Clean & Professional)
                   Container(
@@ -1813,6 +1821,247 @@ class _SubmittedScreenState extends State<SubmittedScreen>
           ),
         ),
       ],
+    );
+  }
+
+  Future<void> _submitLiveFeedback() async {
+    final id = _requestId;
+    if (id == null || id.isEmpty) return;
+    HapticFeedback.mediumImpact();
+    setState(() => _isSubmittingFeedback = true);
+
+    final tags = _selectedFeedbackTags.join(', ');
+    final remark = _feedbackController.text.trim();
+    final feedbackBlock =
+        '[PATIENT REVIEW: $_userRating★ | TAGS: $tags | REMARK: $remark | AT: ${DateTime.now().toUtc().toIso8601String()}]';
+
+    try {
+      final res = await _supabase
+          .from('emergency_requests')
+          .select('notes')
+          .eq('id', id)
+          .maybeSingle();
+
+      final oldNotes = res?['notes']?.toString() ?? '';
+      final newNotes = oldNotes.isNotEmpty ? '$oldNotes\n$feedbackBlock' : feedbackBlock;
+
+      await _supabase
+          .from('emergency_requests')
+          .update({'notes': newNotes})
+          .eq('id', id);
+
+      if (mounted) {
+        setState(() {
+          _feedbackSubmitted = true;
+          _isSubmittingFeedback = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Thank you! Your feedback has been logged to the dispatch desk.'),
+            backgroundColor: Color(0xFF00E676),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() => _isSubmittingFeedback = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Feedback submission notice: $e'),
+            backgroundColor: Colors.orange,
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Widget _buildLiveFeedbackCard(
+    bool isDark,
+    Color cardColor,
+    Color cardBorder,
+    Color textPrimary,
+    Color textMuted,
+  ) {
+    return Container(
+      margin: const EdgeInsets.only(top: 16),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(
+          color: const Color(0xFF00E676).withValues(alpha: 0.4),
+          width: 1.5,
+        ),
+        boxShadow: isDark
+            ? []
+            : [
+                BoxShadow(
+                  color: Colors.black.withValues(alpha: 0.05),
+                  blurRadius: 10,
+                  offset: const Offset(0, 3),
+                ),
+              ],
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(8),
+                decoration: BoxDecoration(
+                  color: Colors.amber.withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.star_rounded, color: Colors.amber, size: 24),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Rate Emergency Mission',
+                      style: TextStyle(
+                        fontWeight: FontWeight.w900,
+                        fontSize: 14,
+                        color: textPrimary,
+                      ),
+                    ),
+                    Text(
+                      'Audited clinical review & driver feedback',
+                      style: TextStyle(fontSize: 11, color: textMuted),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 14),
+
+          // 5 Stars
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: List.generate(5, (index) {
+              final star = index + 1;
+              return IconButton(
+                icon: Icon(
+                  star <= _userRating ? Icons.star_rounded : Icons.star_outline_rounded,
+                  color: Colors.amber,
+                  size: 34,
+                ),
+                onPressed: _feedbackSubmitted
+                    ? null
+                    : () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _userRating = star);
+                      },
+              );
+            }),
+          ),
+          const SizedBox(height: 10),
+
+          // Feedback Tags
+          Wrap(
+            spacing: 8,
+            runSpacing: 6,
+            children: [
+              '⚡ Rapid Arrival',
+              '🩺 Expert Care',
+              '🏥 Direct-to-Bed Bypass',
+              '❤️ Compassionate Paramedics',
+              '⭐ Clean Ambulance',
+            ].map((tag) {
+              final isSelected = _selectedFeedbackTags.contains(tag);
+              return FilterChip(
+                label: Text(
+                  tag,
+                  style: TextStyle(fontSize: 11, color: isSelected ? Colors.white : textPrimary),
+                ),
+                selected: isSelected,
+                selectedColor: const Color(0xFF0284C7),
+                checkmarkColor: Colors.white,
+                onSelected: _feedbackSubmitted
+                    ? null
+                    : (selected) {
+                        HapticFeedback.selectionClick();
+                        setState(() {
+                          if (selected) {
+                            _selectedFeedbackTags.add(tag);
+                          } else {
+                            _selectedFeedbackTags.remove(tag);
+                          }
+                        });
+                      },
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 12),
+
+          // Notes
+          TextField(
+            controller: _feedbackController,
+            enabled: !_feedbackSubmitted,
+            maxLines: 2,
+            style: TextStyle(color: textPrimary, fontSize: 13),
+            decoration: InputDecoration(
+              hintText: 'Add clinical care remarks (optional)...',
+              hintStyle: TextStyle(fontSize: 12, color: textMuted),
+              filled: true,
+              fillColor: isDark ? const Color(0xFF0B192C) : const Color(0xFFF8FAFC),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(10),
+                borderSide: BorderSide(color: cardBorder),
+              ),
+              contentPadding: const EdgeInsets.all(10),
+            ),
+          ),
+          const SizedBox(height: 14),
+
+          if (!_feedbackSubmitted)
+            FilledButton.icon(
+              onPressed: _isSubmittingFeedback ? null : _submitLiveFeedback,
+              icon: _isSubmittingFeedback
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
+                    )
+                  : const Icon(Icons.send_rounded, size: 16),
+              label: const Text(
+                'SUBMIT LIVE FEEDBACK & RATING',
+                style: TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
+              ),
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFF00E676),
+                foregroundColor: const Color(0xFF061536),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+            )
+          else
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFF00E676).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+              ),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.check_circle_rounded, color: Color(0xFF00E676), size: 18),
+                  SizedBox(width: 8),
+                  Text(
+                    'Feedback logged to Central Dispatch Desk!',
+                    style: TextStyle(color: Color(0xFF00E676), fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ],
+              ),
+            ),
+        ],
+      ),
     );
   }
 }
