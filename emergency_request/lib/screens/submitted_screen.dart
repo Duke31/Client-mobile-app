@@ -1222,7 +1222,151 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                   if (_isCompleted)
                     _buildLiveFeedbackCard(isDark, cardColor, cardBorder, textPrimary, textMuted),
                 ] else ...[
-                  // 2. SIMPLIFIED EMERGENCY STATUS CARD (Clean & Professional)
+                  // 2. LIVE INTERACTIVE MULTI-PHASE MILESTONE STEPPER
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                    decoration: BoxDecoration(
+                      color: cardColor,
+                      borderRadius: BorderRadius.circular(16),
+                      border: Border.all(color: cardBorder),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            Icon(
+                              Icons.timeline_rounded,
+                              size: 16,
+                              color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                            ),
+                            const SizedBox(width: 6),
+                            Text(
+                              'EMERGENCY DISPATCH PHASES',
+                              style: TextStyle(
+                                color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                                fontSize: 10,
+                                fontWeight: FontWeight.bold,
+                                letterSpacing: 0.8,
+                              ),
+                            ),
+                            const Spacer(),
+                            Text(
+                              'PHASE ${activePhase + 1} OF ${_orderedPhases.length}',
+                              style: const TextStyle(
+                                color: Color(0xFF00E676),
+                                fontSize: 10,
+                                fontWeight: FontWeight.w900,
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 12),
+                        ListView.builder(
+                          shrinkWrap: true,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: _orderedPhases.length,
+                          itemBuilder: (context, idx) {
+                            final isDone = idx < activePhase;
+                            final isCurrent = idx == activePhase;
+                            final isPending = idx > activePhase;
+                            final isLast = idx == _orderedPhases.length - 1;
+
+                            return IntrinsicHeight(
+                              child: Row(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Column(
+                                    children: [
+                                      Container(
+                                        width: 20,
+                                        height: 20,
+                                        decoration: BoxDecoration(
+                                          shape: BoxShape.circle,
+                                          color: isDone
+                                              ? const Color(0xFF00E676)
+                                              : (isCurrent
+                                                  ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                                                  : (isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1))),
+                                        ),
+                                        child: Center(
+                                          child: isDone
+                                              ? const Icon(Icons.check, size: 12, color: Colors.black)
+                                              : (isCurrent
+                                                  ? const SizedBox(
+                                                      width: 10,
+                                                      height: 10,
+                                                      child: CircularProgressIndicator(
+                                                        strokeWidth: 2,
+                                                        color: Colors.white,
+                                                      ),
+                                                    )
+                                                  : Container(
+                                                      width: 6,
+                                                      height: 6,
+                                                      decoration: BoxDecoration(
+                                                        shape: BoxShape.circle,
+                                                        color: isDark ? Colors.white38 : Colors.grey.shade400,
+                                                      ),
+                                                    )),
+                                        ),
+                                      ),
+                                      if (!isLast)
+                                        Expanded(
+                                          child: Container(
+                                            width: 2,
+                                            color: isDone
+                                                ? const Color(0xFF00E676)
+                                                : (isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1)),
+                                          ),
+                                        ),
+                                    ],
+                                  ),
+                                  const SizedBox(width: 10),
+                                  Expanded(
+                                    child: Padding(
+                                      padding: const EdgeInsets.only(bottom: 12),
+                                      child: Column(
+                                        crossAxisAlignment: CrossAxisAlignment.start,
+                                        children: [
+                                          Text(
+                                            _phaseLabels[idx],
+                                            style: TextStyle(
+                                              fontSize: 12,
+                                              fontWeight: isCurrent ? FontWeight.w900 : FontWeight.w600,
+                                              color: isDone
+                                                  ? const Color(0xFF00E676)
+                                                  : (isCurrent
+                                                      ? textPrimary
+                                                      : textMuted),
+                                            ),
+                                          ),
+                                          if (isCurrent)
+                                            Padding(
+                                              padding: const EdgeInsets.only(top: 2),
+                                              child: Text(
+                                                _descriptionText,
+                                                style: TextStyle(
+                                                  fontSize: 10.5,
+                                                  color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            );
+                          },
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 14),
+
+                  // 3. SIMPLIFIED EMERGENCY STATUS CARD (Clean & Professional)
                   Container(
                     padding: const EdgeInsets.all(18),
                     decoration: BoxDecoration(
