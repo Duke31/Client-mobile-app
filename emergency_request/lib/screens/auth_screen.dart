@@ -19,11 +19,15 @@ class _AuthScreenState extends State<AuthScreen> {
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _gestationalWeeksController = TextEditingController(text: '32');
 
   bool _isSignUp = false;
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
+
+  // Sign up care plan
+  String _profileType = 'maternal'; // 'maternal' | 'standard'
 
   @override
   void dispose() {
@@ -31,6 +35,7 @@ class _AuthScreenState extends State<AuthScreen> {
     _passwordController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
+    _gestationalWeeksController.dispose();
     super.dispose();
   }
 
@@ -46,6 +51,8 @@ class _AuthScreenState extends State<AuthScreen> {
     final password = _passwordController.text.trim();
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
+    final isMaternal = _profileType == 'maternal';
+    final weeks = int.tryParse(_gestationalWeeksController.text.trim()) ?? 32;
 
     try {
       if (_isSignUp) {
@@ -55,6 +62,9 @@ class _AuthScreenState extends State<AuthScreen> {
           data: {
             'full_name': name,
             'phone': phone,
+            'profile_type': _profileType,
+            'is_pregnant': isMaternal,
+            'gestational_weeks': isMaternal ? weeks : null,
           },
         );
         final user = res.user;
@@ -62,10 +72,13 @@ class _AuthScreenState extends State<AuthScreen> {
           try {
             await _supabase.from('profiles').upsert({
               'user_id': user.id,
-              'display_name': name.isNotEmpty ? name : 'Solace Patient',
-              'full_name': name.isNotEmpty ? name : 'Solace Patient',
+              'display_name': name.isNotEmpty ? name : 'Solace Member',
+              'full_name': name.isNotEmpty ? name : 'Solace Member',
               'phone': phone.isNotEmpty ? phone : null,
               'role': 'client',
+              'profile_type': _profileType,
+              'is_pregnant': isMaternal,
+              'gestational_weeks': isMaternal ? weeks : null,
             }, onConflict: 'user_id');
           } catch (_) {}
         }
@@ -74,7 +87,7 @@ class _AuthScreenState extends State<AuthScreen> {
           setState(() {
             _isLoading = false;
             _errorMessage =
-                'Account created. Please check your email to confirm, then sign in.';
+                'Account registered. Please check your email inbox to confirm, then sign in.';
             _isSignUp = false;
           });
           return;
@@ -105,24 +118,16 @@ class _AuthScreenState extends State<AuthScreen> {
     }
   }
 
-  /// Builds a themed [InputDecoration] that is consistent with [AppTheme]
-  /// for both dark and light modes. Fixes the invisible-text-on-light-card
-  /// bug by explicitly setting every border state and the cursor/label colours.
   InputDecoration _inputDecoration({
     required String label,
     required IconData prefixIcon,
     required bool isDark,
     Widget? suffixIcon,
   }) {
-    final textMuted =
-        isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
-    final inputBg = isDark
-        ? const Color(0xFF0D2559)
-        : const Color(0xFFF1F5F9);
-    final normalBorder =
-        isDark ? AppTheme.darkCardBorder : const Color(0xFF94A3B8);
-    final focusedBorderColor =
-        isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
+    final textMuted = isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
+    final inputBg = isDark ? const Color(0xFF0D2559) : const Color(0xFFF1F5F9);
+    final normalBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFF94A3B8);
+    final focusedBorderColor = isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
 
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
@@ -149,8 +154,7 @@ class _AuthScreenState extends State<AuthScreen> {
       focusedBorder: focusedBorder,
       errorBorder: errorBorder,
       focusedErrorBorder: errorBorder,
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
     );
   }
 
@@ -158,50 +162,27 @@ class _AuthScreenState extends State<AuthScreen> {
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
-    // ── Palette pulled entirely from AppTheme – no manual hex drift ──────────
     final bgColor = isDark ? AppTheme.darkBg : AppTheme.lightBg;
-    final cardColor = isDark ? AppTheme.darkCard : AppTheme.lightCard;
-    final cardBorder =
-        isDark ? AppTheme.darkCardBorder : AppTheme.lightCardBorder;
-    final textPrimary =
-        isDark ? AppTheme.darkTextPrimary : AppTheme.lightTextPrimary;
-    final textMuted =
-        isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
-    final primaryColor =
-        isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
+    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
+    final cardBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFCBD5E1);
+    final textPrimary = isDark ? AppTheme.darkTextPrimary : const Color(0xFF0F172A);
+    final textMuted = isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
+    final primaryColor = isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
+
+    final isMaternal = _profileType == 'maternal';
 
     return Scaffold(
       backgroundColor: bgColor,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        actions: [
-          IconButton(
-            tooltip:
-                isDark ? 'Switch to Light Theme' : 'Switch to Dark Theme',
-            icon: Icon(
-              isDark ? Icons.light_mode_rounded : Icons.dark_mode_rounded,
-              color: primaryColor,
-            ),
-            onPressed: () {
-              HapticFeedback.selectionClick();
-              AppTheme.toggleTheme();
-            },
-          ),
-          const SizedBox(width: 8),
-        ],
-      ),
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding:
-                const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
             child: Form(
               key: _formKey,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-                  // ── Logo & Brand ──────────────────────────────────────────
+                  // Logo
                   Center(
                     child: Container(
                       padding: const EdgeInsets.all(18),
@@ -237,14 +218,13 @@ class _AuthScreenState extends State<AuthScreen> {
                   const SizedBox(height: 4),
                   Text(
                     _isSignUp
-                        ? 'Register for instant emergency dispatch & tracking'
+                        ? 'Select your emergency care plan & register'
                         : 'Sign in to access rapid ambulance response',
                     textAlign: TextAlign.center,
                     style: TextStyle(fontSize: 12.5, color: textMuted),
                   ),
-                  const SizedBox(height: 26),
+                  const SizedBox(height: 24),
 
-                  // ── Error notification ────────────────────────────────────
                   if (_errorMessage != null) ...[
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -252,7 +232,8 @@ class _AuthScreenState extends State<AuthScreen> {
                         color: Colors.red.shade900.withValues(alpha: 0.18),
                         borderRadius: BorderRadius.circular(12),
                         border: Border.all(
-                            color: Colors.redAccent.withValues(alpha: 0.6)),
+                          color: Colors.redAccent.withValues(alpha: 0.6),
+                        ),
                       ),
                       child: Row(
                         children: [
@@ -272,34 +253,101 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 16),
                   ],
 
-                  // ── Form Container ────────────────────────────────────────
+                  // Form Container
                   Container(
                     padding: const EdgeInsets.all(20),
                     decoration: BoxDecoration(
                       color: cardColor,
                       borderRadius: BorderRadius.circular(20),
                       border: Border.all(color: cardBorder),
-                      boxShadow: isDark
-                          ? []
-                          : [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.05),
-                                blurRadius: 12,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
                     ),
                     child: Column(
                       children: [
                         if (_isSignUp) ...[
-                          // Full Name
+                          // Care Plan Picker
+                          Row(
+                            children: [
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _profileType = 'maternal');
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    decoration: BoxDecoration(
+                                      color: isMaternal
+                                          ? const Color(0xFFEC4899).withValues(alpha: 0.15)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: isMaternal ? const Color(0xFFEC4899) : cardBorder,
+                                        width: isMaternal ? 1.6 : 1.0,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        const Text('🌸', style: TextStyle(fontSize: 18)),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Maternal Plan',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            color: isMaternal ? const Color(0xFFEC4899) : textPrimary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: InkWell(
+                                  onTap: () {
+                                    HapticFeedback.selectionClick();
+                                    setState(() => _profileType = 'standard');
+                                  },
+                                  borderRadius: BorderRadius.circular(10),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    decoration: BoxDecoration(
+                                      color: !isMaternal
+                                          ? const Color(0xFF0284C7).withValues(alpha: 0.15)
+                                          : Colors.transparent,
+                                      borderRadius: BorderRadius.circular(10),
+                                      border: Border.all(
+                                        color: !isMaternal ? const Color(0xFF0284C7) : cardBorder,
+                                        width: !isMaternal ? 1.6 : 1.0,
+                                      ),
+                                    ),
+                                    child: Column(
+                                      children: [
+                                        const Text('🛡️', style: TextStyle(fontSize: 18)),
+                                        const SizedBox(height: 2),
+                                        Text(
+                                          'Standard Shield',
+                                          style: TextStyle(
+                                            fontSize: 11,
+                                            fontWeight: FontWeight.w800,
+                                            color: !isMaternal ? const Color(0xFF0284C7) : textPrimary,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Name
                           TextFormField(
                             controller: _nameController,
-                            style: TextStyle(
-                              color: textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            style: TextStyle(color: textPrimary, fontSize: 14),
                             cursorColor: primaryColor,
                             decoration: _inputDecoration(
                               label: 'Full Name',
@@ -307,50 +355,54 @@ class _AuthScreenState extends State<AuthScreen> {
                               isDark: isDark,
                             ),
                             validator: (val) {
-                              if (_isSignUp &&
-                                  (val == null || val.trim().isEmpty)) {
-                                return 'Please enter your full name';
+                              if (_isSignUp && (val == null || val.trim().isEmpty)) {
+                                return 'Please enter your name';
                               }
                               return null;
                             },
                           ),
-                          const SizedBox(height: 14),
+                          const SizedBox(height: 12),
 
                           // Phone
                           TextFormField(
                             controller: _phoneController,
                             keyboardType: TextInputType.phone,
-                            style: TextStyle(
-                              color: textPrimary,
-                              fontSize: 14,
-                              fontWeight: FontWeight.w500,
-                            ),
+                            style: TextStyle(color: textPrimary, fontSize: 14),
                             cursorColor: primaryColor,
                             decoration: _inputDecoration(
-                              label: 'Phone Number (Callback Line)',
+                              label: 'Phone Number',
                               prefixIcon: Icons.phone_outlined,
                               isDark: isDark,
                             ),
                             validator: (val) {
-                              if (_isSignUp &&
-                                  (val == null || val.trim().isEmpty)) {
-                                return 'Please enter your phone number';
+                              if (_isSignUp && (val == null || val.trim().isEmpty)) {
+                                return 'Please enter phone number';
                               }
                               return null;
                             },
                           ),
-                          const SizedBox(height: 14),
+                          const SizedBox(height: 12),
+
+                          if (isMaternal) ...[
+                            TextFormField(
+                              controller: _gestationalWeeksController,
+                              keyboardType: TextInputType.number,
+                              style: TextStyle(color: textPrimary, fontSize: 14),
+                              decoration: _inputDecoration(
+                                label: 'Gestational Weeks (e.g. 32)',
+                                prefixIcon: Icons.pregnant_woman_rounded,
+                                isDark: isDark,
+                              ),
+                            ),
+                            const SizedBox(height: 12),
+                          ],
                         ],
 
                         // Email
                         TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
-                          style: TextStyle(
-                            color: textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          style: TextStyle(color: textPrimary, fontSize: 14),
                           cursorColor: primaryColor,
                           decoration: _inputDecoration(
                             label: 'Email Address',
@@ -358,25 +410,19 @@ class _AuthScreenState extends State<AuthScreen> {
                             isDark: isDark,
                           ),
                           validator: (val) {
-                            if (val == null ||
-                                val.trim().isEmpty ||
-                                !val.contains('@')) {
-                              return 'Please enter a valid email address';
+                            if (val == null || val.trim().isEmpty) {
+                              return 'Please enter your email';
                             }
                             return null;
                           },
                         ),
-                        const SizedBox(height: 14),
+                        const SizedBox(height: 12),
 
                         // Password
                         TextFormField(
                           controller: _passwordController,
                           obscureText: _obscurePassword,
-                          style: TextStyle(
-                            color: textPrimary,
-                            fontSize: 14,
-                            fontWeight: FontWeight.w500,
-                          ),
+                          style: TextStyle(color: textPrimary, fontSize: 14),
                           cursorColor: primaryColor,
                           decoration: _inputDecoration(
                             label: 'Password',
@@ -385,97 +431,73 @@ class _AuthScreenState extends State<AuthScreen> {
                             suffixIcon: IconButton(
                               icon: Icon(
                                 _obscurePassword
-                                    ? Icons.visibility_off_rounded
-                                    : Icons.visibility_rounded,
+                                    ? Icons.visibility_off_outlined
+                                    : Icons.visibility_outlined,
                                 color: textMuted,
                                 size: 20,
                               ),
-                              onPressed: () => setState(
-                                  () => _obscurePassword = !_obscurePassword),
+                              onPressed: () {
+                                setState(() => _obscurePassword = !_obscurePassword);
+                              },
                             ),
                           ),
                           validator: (val) {
-                            if (val == null || val.length < 6) {
+                            if (val == null || val.trim().length < 6) {
                               return 'Password must be at least 6 characters';
                             }
                             return null;
                           },
                         ),
-                        const SizedBox(height: 22),
+                        const SizedBox(height: 20),
 
-                        // Submit button
+                        // Submit
                         SizedBox(
                           width: double.infinity,
-                          height: 50,
                           child: FilledButton(
-                            style: FilledButton.styleFrom(
-                              backgroundColor: AppTheme.darkAccent,
-                              foregroundColor: Colors.white,
-                              shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(14)),
-                              elevation: 2,
-                            ),
                             onPressed: _isLoading ? null : _submit,
+                            style: FilledButton.styleFrom(
+                              backgroundColor: primaryColor,
+                              foregroundColor: isDark ? const Color(0xFF030E22) : Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 14),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                            ),
                             child: _isLoading
                                 ? const SizedBox(
-                                    width: 22,
-                                    height: 22,
-                                    child: CircularProgressIndicator(
-                                        color: Colors.white, strokeWidth: 2.5),
+                                    height: 20,
+                                    width: 20,
+                                    child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
                                   )
                                 : Text(
-                                    _isSignUp
-                                        ? 'CREATE ACCOUNT & ENTER'
-                                        : 'SIGN IN TO DISPATCH',
-                                    style: const TextStyle(
-                                      fontWeight: FontWeight.w900,
-                                      fontSize: 13,
-                                      letterSpacing: 0.8,
-                                    ),
+                                    _isSignUp ? 'Create My Solace Shield' : 'Sign In to Solace',
+                                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
                                   ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 16),
 
-                  // ── Toggle Sign in / Register ─────────────────────────────
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
+                  // Switch between sign in / sign up
+                  Center(
+                    child: TextButton(
+                      onPressed: () {
+                        HapticFeedback.selectionClick();
+                        setState(() {
+                          _isSignUp = !_isSignUp;
+                          _errorMessage = null;
+                        });
+                      },
+                      child: Text(
                         _isSignUp
-                            ? 'Already have a Solace account?'
-                            : "Don't have an account?",
-                        style: TextStyle(color: textMuted, fontSize: 13),
-                      ),
-                      TextButton(
-                        onPressed: () {
-                          HapticFeedback.selectionClick();
-                          setState(() {
-                            _isSignUp = !_isSignUp;
-                            _errorMessage = null;
-                          });
-                        },
-                        child: Text(
-                          _isSignUp ? 'Sign In' : 'Register Now',
-                          style: TextStyle(
-                            color: primaryColor,
-                            fontWeight: FontWeight.bold,
-                            fontSize: 13,
-                          ),
+                            ? 'Already have an account? Sign in'
+                            : "Don't have an account? Register with Care Plan",
+                        style: TextStyle(
+                          color: primaryColor,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 12.5,
                         ),
                       ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  Center(
-                    child: Text(
-                      '24/7 Rapid Emergency Response Network',
-                      style: TextStyle(
-                          color: textMuted.withValues(alpha: 0.7),
-                          fontSize: 11),
                     ),
                   ),
                 ],
