@@ -19,15 +19,43 @@ class _AuthScreenState extends State<AuthScreen> {
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
-  final _gestationalWeeksController = TextEditingController(text: '32');
+  final _eddController = TextEditingController();
 
   bool _isSignUp = false;
   bool _isLoading = false;
   bool _obscurePassword = true;
   String? _errorMessage;
 
-  // Sign up care plan
-  String _profileType = 'maternal'; // 'maternal' | 'standard'
+  // Care Plan Onboarding State
+  String _selectedPlan = 'maternal'; // 'maternal' | 'standard'
+  int _gestationalWeeks = 32;
+  String _selectedBloodGroup = 'O- (Rare Blood Shield)';
+  String _selectedGenotype = 'AA';
+  String _preferredHospital = 'LifeCare Private Clinic (Ring Road, Ibadan)';
+
+  static const List<String> _bloodGroups = [
+    'Unknown',
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'AB+',
+    'AB-',
+    'O+',
+    'O- (Rare Blood Shield)',
+  ];
+
+  static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];
+
+  static const List<String> _hospitals = [
+    'LifeCare Private Clinic (Ring Road, Ibadan)',
+    'Bodija Premier Medical Center (Ibadan)',
+    'University College Hospital - UCH Private Wing (Ibadan)',
+    'Asubiaro State Hospital (Osogbo, Osun State)',
+    'UNIOSUN Teaching Hospital (Osun State)',
+    'Lagos University Teaching Hospital - LUTH (Lagos)',
+    'First Cardiology / Lekki Medical Center (Lagos)',
+  ];
 
   @override
   void dispose() {
@@ -35,8 +63,14 @@ class _AuthScreenState extends State<AuthScreen> {
     _passwordController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
-    _gestationalWeeksController.dispose();
+    _eddController.dispose();
     super.dispose();
+  }
+
+  String _getTrimesterLabel(int weeks) {
+    if (weeks < 13) return '1st Trimester';
+    if (weeks < 28) return '2nd Trimester';
+    return '3rd Trimester';
   }
 
   Future<void> _submit() async {
@@ -51,8 +85,7 @@ class _AuthScreenState extends State<AuthScreen> {
     final password = _passwordController.text.trim();
     final name = _nameController.text.trim();
     final phone = _phoneController.text.trim();
-    final isMaternal = _profileType == 'maternal';
-    final weeks = int.tryParse(_gestationalWeeksController.text.trim()) ?? 32;
+    final isMaternal = _selectedPlan == 'maternal';
 
     try {
       if (_isSignUp) {
@@ -61,12 +94,20 @@ class _AuthScreenState extends State<AuthScreen> {
           password: password,
           data: {
             'full_name': name,
+            'name': name,
             'phone': phone,
-            'profile_type': _profileType,
+            'profile_type': _selectedPlan,
             'is_pregnant': isMaternal,
-            'gestational_weeks': isMaternal ? weeks : null,
+            'gestational_weeks': isMaternal ? _gestationalWeeks : null,
+            'edd': isMaternal && _eddController.text.trim().isNotEmpty
+                ? _eddController.text.trim()
+                : null,
+            'blood_group': _selectedBloodGroup != 'Unknown' ? _selectedBloodGroup : null,
+            'genotype': _selectedGenotype,
+            'preferred_hospital': _preferredHospital,
           },
         );
+
         final user = res.user;
         if (user != null) {
           try {
@@ -76,18 +117,25 @@ class _AuthScreenState extends State<AuthScreen> {
               'full_name': name.isNotEmpty ? name : 'Solace Member',
               'phone': phone.isNotEmpty ? phone : null,
               'role': 'client',
-              'profile_type': _profileType,
+              'profile_type': _selectedPlan,
               'is_pregnant': isMaternal,
-              'gestational_weeks': isMaternal ? weeks : null,
+              'gestational_weeks': isMaternal ? _gestationalWeeks : null,
+              'edd': isMaternal && _eddController.text.trim().isNotEmpty
+                  ? _eddController.text.trim()
+                  : null,
+              'blood_group': _selectedBloodGroup != 'Unknown' ? _selectedBloodGroup : null,
+              'genotype': _selectedGenotype,
+              'preferred_hospital': _preferredHospital,
             }, onConflict: 'user_id');
           } catch (_) {}
         }
+
         if (res.session == null) {
           if (!mounted) return;
           setState(() {
             _isLoading = false;
             _errorMessage =
-                'Account registered. Please check your email inbox to confirm, then sign in.';
+                'Account created! Please check your email inbox to confirm, then sign in.';
             _isSignUp = false;
           });
           return;
@@ -113,7 +161,7 @@ class _AuthScreenState extends State<AuthScreen> {
       if (!mounted) return;
       setState(() {
         _isLoading = false;
-        _errorMessage = 'An unexpected error occurred: $e';
+        _errorMessage = 'Authentication notice: $e';
       });
     }
   }
@@ -124,37 +172,37 @@ class _AuthScreenState extends State<AuthScreen> {
     required bool isDark,
     Widget? suffixIcon,
   }) {
-    final textMuted = isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
-    final inputBg = isDark ? const Color(0xFF0D2559) : const Color(0xFFF1F5F9);
-    final normalBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFF94A3B8);
-    final focusedBorderColor = isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
-
-    final border = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(color: normalBorder),
-    );
-    final focusedBorder = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(12),
-      borderSide: BorderSide(color: focusedBorderColor, width: 1.8),
-    );
-    final errorBorder = OutlineInputBorder(
-      borderRadius: BorderRadius.circular(12),
-      borderSide: const BorderSide(color: Color(0xFFD32F2F), width: 1.4),
-    );
+    final borderCol = isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1);
+    final focusCol = isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7);
+    final fillCol = isDark ? const Color(0xFF0B192C) : const Color(0xFFF8FAFC);
 
     return InputDecoration(
       labelText: label,
-      labelStyle: TextStyle(color: textMuted, fontSize: 13),
-      prefixIcon: Icon(prefixIcon, color: textMuted, size: 20),
-      suffixIcon: suffixIcon,
+      labelStyle: TextStyle(
+        color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
+        fontSize: 13,
+      ),
       filled: true,
-      fillColor: inputBg,
-      border: border,
-      enabledBorder: border,
-      focusedBorder: focusedBorder,
-      errorBorder: errorBorder,
-      focusedErrorBorder: errorBorder,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+      fillColor: fillCol,
+      prefixIcon: Icon(prefixIcon, color: focusCol, size: 20),
+      suffixIcon: suffixIcon,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+      enabledBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: borderCol, width: 1.0),
+      ),
+      focusedBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: BorderSide(color: focusCol, width: 1.8),
+      ),
+      errorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1.0),
+      ),
+      focusedErrorBorder: OutlineInputBorder(
+        borderRadius: BorderRadius.circular(12),
+        borderSide: const BorderSide(color: Colors.redAccent, width: 1.8),
+      ),
     );
   }
 
@@ -163,342 +211,598 @@ class _AuthScreenState extends State<AuthScreen> {
     final isDark = Theme.of(context).brightness == Brightness.dark;
 
     final bgColor = isDark ? AppTheme.darkBg : AppTheme.lightBg;
-    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
+    final cardBg = isDark ? AppTheme.darkCard : Colors.white;
     final cardBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFCBD5E1);
-    final textPrimary = isDark ? AppTheme.darkTextPrimary : const Color(0xFF0F172A);
-    final textMuted = isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted;
-    final primaryColor = isDark ? AppTheme.darkPrimary : AppTheme.lightPrimary;
-
-    final isMaternal = _profileType == 'maternal';
+    final textPrimary = isDark ? Colors.white : const Color(0xFF0F172A);
+    final textSecondary = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+    final primaryColor = isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7);
 
     return Scaffold(
       backgroundColor: bgColor,
       body: SafeArea(
         child: Center(
           child: SingleChildScrollView(
-            padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
+            padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 24),
             child: Form(
               key: _formKey,
               child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
+                mainAxisSize: MainAxisSize.min,
                 children: [
-                  // Logo
-                  Center(
-                    child: Container(
-                      padding: const EdgeInsets.all(18),
-                      decoration: BoxDecoration(
-                        color: cardColor,
-                        shape: BoxShape.circle,
-                        border: Border.all(color: primaryColor, width: 2.0),
-                        boxShadow: [
-                          BoxShadow(
-                            color: primaryColor.withValues(alpha: 0.25),
-                            blurRadius: 16,
-                          ),
-                        ],
+                  // ── LOGO & HEADLINE ──────────────────────────────────────────
+                  Container(
+                    width: 64,
+                    height: 64,
+                    decoration: BoxDecoration(
+                      gradient: const LinearGradient(
+                        colors: [Color(0xFF0284C7), Color(0xFF00D4FF)],
+                        begin: Alignment.topLeft,
+                        end: Alignment.bottomRight,
                       ),
-                      child: Icon(
-                        Icons.medical_services_rounded,
-                        size: 46,
-                        color: primaryColor,
-                      ),
+                      borderRadius: BorderRadius.circular(18),
+                      boxShadow: [
+                        BoxShadow(
+                          color: const Color(0xFF00D4FF).withValues(alpha: 0.35),
+                          blurRadius: 16,
+                          offset: const Offset(0, 6),
+                        ),
+                      ],
                     ),
+                    child: const Icon(Icons.local_hospital_rounded, color: Colors.white, size: 36),
                   ),
-                  const SizedBox(height: 18),
+                  const SizedBox(height: 14),
                   Text(
-                    'SOLACE RAPID EMS',
-                    textAlign: TextAlign.center,
+                    'SOLACE EMS',
                     style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.w900,
                       color: textPrimary,
+                      fontSize: 22,
+                      fontWeight: FontWeight.w900,
                       letterSpacing: 1.2,
                     ),
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    _isSignUp
-                        ? 'Select your emergency care plan & register'
-                        : 'Sign in to access rapid ambulance response',
+                    'Emergency Medical Network • Direct-to-Bed Guarantee',
                     textAlign: TextAlign.center,
-                    style: TextStyle(fontSize: 12.5, color: textMuted),
+                    style: TextStyle(
+                      color: textSecondary,
+                      fontSize: 11.5,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                   const SizedBox(height: 24),
 
+                  // ── ERROR BANNER ─────────────────────────────────────────────
                   if (_errorMessage != null) ...[
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: Colors.red.shade900.withValues(alpha: 0.18),
+                        color: Colors.red.withValues(alpha: 0.12),
                         borderRadius: BorderRadius.circular(12),
-                        border: Border.all(
-                          color: Colors.redAccent.withValues(alpha: 0.6),
-                        ),
+                        border: Border.all(color: Colors.redAccent.withValues(alpha: 0.4)),
                       ),
                       child: Row(
                         children: [
-                          const Icon(Icons.error_outline_rounded,
-                              color: Colors.redAccent, size: 20),
+                          const Icon(Icons.error_outline_rounded, color: Colors.redAccent, size: 20),
                           const SizedBox(width: 10),
                           Expanded(
                             child: Text(
                               _errorMessage!,
-                              style: const TextStyle(
-                                  color: Colors.redAccent, fontSize: 12.5),
+                              style: const TextStyle(color: Colors.redAccent, fontSize: 12, height: 1.3),
                             ),
                           ),
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 18),
                   ],
 
-                  // Form Container
+                  // ── MAIN FORM CARD ───────────────────────────────────────────
                   Container(
-                    padding: const EdgeInsets.all(20),
+                    padding: const EdgeInsets.all(22),
                     decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(20),
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(22),
                       border: Border.all(color: cardBorder),
+                      boxShadow: isDark
+                          ? []
+                          : [
+                              BoxShadow(
+                                color: Colors.black.withValues(alpha: 0.05),
+                                blurRadius: 16,
+                                offset: const Offset(0, 4),
+                              ),
+                            ],
                     ),
                     child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
                       children: [
-                        if (_isSignUp) ...[
-                          // Care Plan Picker
-                          Row(
+                        // Tab switcher: Sign In vs Sign Up
+                        Container(
+                          padding: const EdgeInsets.all(4),
+                          decoration: BoxDecoration(
+                            color: isDark ? const Color(0xFF0F172A) : const Color(0xFFF1F5F9),
+                            borderRadius: BorderRadius.circular(12),
+                          ),
+                          child: Row(
                             children: [
                               Expanded(
                                 child: InkWell(
                                   onTap: () {
                                     HapticFeedback.selectionClick();
-                                    setState(() => _profileType = 'maternal');
+                                    setState(() => _isSignUp = false);
                                   },
                                   borderRadius: BorderRadius.circular(10),
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
                                     decoration: BoxDecoration(
-                                      color: isMaternal
-                                          ? const Color(0xFFEC4899).withValues(alpha: 0.15)
+                                      color: !_isSignUp
+                                          ? (isDark ? const Color(0xFF1E293B) : Colors.white)
                                           : Colors.transparent,
                                       borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: isMaternal ? const Color(0xFFEC4899) : cardBorder,
-                                        width: isMaternal ? 1.6 : 1.0,
-                                      ),
+                                      boxShadow: !_isSignUp && !isDark
+                                          ? [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(alpha: 0.06),
+                                                blurRadius: 4,
+                                                offset: const Offset(0, 2),
+                                              ),
+                                            ]
+                                          : [],
                                     ),
-                                    child: Column(
-                                      children: [
-                                        const Text('🌸', style: TextStyle(fontSize: 18)),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Maternal Plan',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: isMaternal ? const Color(0xFFEC4899) : textPrimary,
-                                          ),
+                                    child: Center(
+                                      child: Text(
+                                        'SIGN IN',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                          color: !_isSignUp ? primaryColor : textSecondary,
+                                          letterSpacing: 0.5,
                                         ),
-                                      ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
-                              const SizedBox(width: 8),
                               Expanded(
                                 child: InkWell(
                                   onTap: () {
                                     HapticFeedback.selectionClick();
-                                    setState(() => _profileType = 'standard');
+                                    setState(() => _isSignUp = true);
                                   },
                                   borderRadius: BorderRadius.circular(10),
                                   child: Container(
-                                    padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+                                    padding: const EdgeInsets.symmetric(vertical: 10),
                                     decoration: BoxDecoration(
-                                      color: !isMaternal
-                                          ? const Color(0xFF0284C7).withValues(alpha: 0.15)
+                                      color: _isSignUp
+                                          ? (isDark ? const Color(0xFF1E293B) : Colors.white)
                                           : Colors.transparent,
                                       borderRadius: BorderRadius.circular(10),
-                                      border: Border.all(
-                                        color: !isMaternal ? const Color(0xFF0284C7) : cardBorder,
-                                        width: !isMaternal ? 1.6 : 1.0,
-                                      ),
+                                      boxShadow: _isSignUp && !isDark
+                                          ? [
+                                              BoxShadow(
+                                                color: Colors.black.withValues(alpha: 0.06),
+                                                blurRadius: 4,
+                                                offset: const Offset(0, 2),
+                                              ),
+                                            ]
+                                          : [],
                                     ),
-                                    child: Column(
-                                      children: [
-                                        const Text('🛡️', style: TextStyle(fontSize: 18)),
-                                        const SizedBox(height: 2),
-                                        Text(
-                                          'Standard Shield',
-                                          style: TextStyle(
-                                            fontSize: 11,
-                                            fontWeight: FontWeight.w800,
-                                            color: !isMaternal ? const Color(0xFF0284C7) : textPrimary,
-                                          ),
+                                    child: Center(
+                                      child: Text(
+                                        'CREATE ACCOUNT',
+                                        style: TextStyle(
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w800,
+                                          color: _isSignUp ? primaryColor : textSecondary,
+                                          letterSpacing: 0.5,
                                         ),
-                                      ],
+                                      ),
                                     ),
                                   ),
                                 ),
                               ),
                             ],
                           ),
-                          const SizedBox(height: 14),
+                        ),
+                        const SizedBox(height: 20),
 
-                          // Name
+                        // SIGN UP ONLY FIELDS
+                        if (_isSignUp) ...[
+                          // Full Name
                           TextFormField(
                             controller: _nameController,
                             style: TextStyle(color: textPrimary, fontSize: 14),
-                            cursorColor: primaryColor,
                             decoration: _inputDecoration(
-                              label: 'Full Name',
+                              label: 'Full Legal Name',
                               prefixIcon: Icons.person_outline_rounded,
                               isDark: isDark,
                             ),
                             validator: (val) {
                               if (_isSignUp && (val == null || val.trim().isEmpty)) {
-                                return 'Please enter your name';
+                                return 'Please enter your full legal name';
                               }
                               return null;
                             },
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 14),
 
                           // Phone
                           TextFormField(
                             controller: _phoneController,
                             keyboardType: TextInputType.phone,
                             style: TextStyle(color: textPrimary, fontSize: 14),
-                            cursorColor: primaryColor,
                             decoration: _inputDecoration(
-                              label: 'Phone Number',
+                              label: 'Emergency Contact Phone (+234...)',
                               prefixIcon: Icons.phone_outlined,
                               isDark: isDark,
                             ),
                             validator: (val) {
                               if (_isSignUp && (val == null || val.trim().isEmpty)) {
-                                return 'Please enter phone number';
+                                return 'Please enter your phone number';
                               }
                               return null;
                             },
                           ),
-                          const SizedBox(height: 12),
+                          const SizedBox(height: 18),
 
-                          if (isMaternal) ...[
-                            TextFormField(
-                              controller: _gestationalWeeksController,
-                              keyboardType: TextInputType.number,
-                              style: TextStyle(color: textPrimary, fontSize: 14),
-                              decoration: _inputDecoration(
-                                label: 'Gestational Weeks (e.g. 32)',
-                                prefixIcon: Icons.pregnant_woman_rounded,
-                                isDark: isDark,
+                          // ── CARE PLAN SELECTOR (Maternal vs Standard) ─────────
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                children: [
+                                  Text(
+                                    'SELECT CARE PLAN',
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w900,
+                                      color: primaryColor,
+                                      letterSpacing: 0.8,
+                                    ),
+                                  ),
+                                  const SizedBox(width: 6),
+                                  const Text('• Required', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                ],
+                              ),
+                              const SizedBox(height: 8),
+
+                              // Plan A: Maternal & Obstetric Plan
+                              InkWell(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() => _selectedPlan = 'maternal');
+                                },
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _selectedPlan == 'maternal'
+                                        ? const Color(0xFFEC4899).withValues(alpha: 0.12)
+                                        : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC)),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: _selectedPlan == 'maternal'
+                                          ? const Color(0xFFEC4899)
+                                          : cardBorder,
+                                      width: _selectedPlan == 'maternal' ? 2.0 : 1.0,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEC4899).withValues(alpha: 0.2),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Text('🌸', style: TextStyle(fontSize: 20)),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Row(
+                                              children: [
+                                                Text(
+                                                  'Maternal & Obstetric Care Plan',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            Text(
+                                              'Gestational tracking, kick counter, labor pre-alert & rare blood shield.',
+                                              style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        _selectedPlan == 'maternal'
+                                            ? Icons.check_circle_rounded
+                                            : Icons.radio_button_off_rounded,
+                                        color: _selectedPlan == 'maternal'
+                                            ? const Color(0xFFEC4899)
+                                            : textSecondary,
+                                        size: 20,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+
+                              // Plan B: Standard Emergency Shield
+                              InkWell(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() => _selectedPlan = 'standard');
+                                },
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _selectedPlan == 'standard'
+                                        ? primaryColor.withValues(alpha: 0.12)
+                                        : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC)),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: _selectedPlan == 'standard'
+                                          ? primaryColor
+                                          : cardBorder,
+                                      width: _selectedPlan == 'standard' ? 2.0 : 1.0,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: primaryColor.withValues(alpha: 0.2),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Text('🛡️', style: TextStyle(fontSize: 20)),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            const Text(
+                                              'Standard Emergency Shield',
+                                              style: TextStyle(
+                                                fontWeight: FontWeight.w800,
+                                                fontSize: 13,
+                                              ),
+                                            ),
+                                            Text(
+                                              'VIP direct-to-bed intake for acute trauma, cardiac, pediatric & acute cases.',
+                                              style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        _selectedPlan == 'standard'
+                                            ? Icons.check_circle_rounded
+                                            : Icons.radio_button_off_rounded,
+                                        color: _selectedPlan == 'standard'
+                                            ? primaryColor
+                                            : textSecondary,
+                                        size: 20,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 16),
+
+                          // MATERNAL-SPECIFIC FIELDS
+                          if (_selectedPlan == 'maternal') ...[
+                            Container(
+                              padding: const EdgeInsets.all(14),
+                              decoration: BoxDecoration(
+                                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFDF2F8),
+                                borderRadius: BorderRadius.circular(14),
+                                border: Border.all(color: const Color(0xFFEC4899).withValues(alpha: 0.3)),
+                              ),
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                    children: [
+                                      const Text(
+                                        'Current Gestational Age:',
+                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
+                                      ),
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEC4899),
+                                          borderRadius: BorderRadius.circular(8),
+                                        ),
+                                        child: Text(
+                                          'Week $_gestationalWeeks • ${_getTrimesterLabel(_gestationalWeeks)}',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w900,
+                                          ),
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                  Slider(
+                                    value: _gestationalWeeks.toDouble(),
+                                    min: 4,
+                                    max: 42,
+                                    divisions: 38,
+                                    activeColor: const Color(0xFFEC4899),
+                                    onChanged: (val) {
+                                      setState(() => _gestationalWeeks = val.round());
+                                    },
+                                  ),
+                                  const SizedBox(height: 6),
+                                  TextFormField(
+                                    controller: _eddController,
+                                    style: TextStyle(color: textPrimary, fontSize: 13),
+                                    decoration: _inputDecoration(
+                                      label: 'Estimated Due Date (EDD e.g., 2026-12-15)',
+                                      prefixIcon: Icons.calendar_today_rounded,
+                                      isDark: isDark,
+                                    ),
+                                  ),
+                                ],
                               ),
                             ),
-                            const SizedBox(height: 12),
+                            const SizedBox(height: 14),
                           ],
+
+                          // Blood Group Selection (Rare Blood Shield Support)
+                          DropdownButtonFormField<String>(
+                            value: _selectedBloodGroup,
+                            dropdownColor: cardBg,
+                            style: TextStyle(color: textPrimary, fontSize: 13),
+                            decoration: _inputDecoration(
+                              label: 'Blood Group',
+                              prefixIcon: Icons.bloodtype_rounded,
+                              isDark: isDark,
+                            ),
+                            items: _bloodGroups.map((bg) {
+                              return DropdownMenuItem(
+                                value: bg,
+                                child: Text(
+                                  bg,
+                                  style: TextStyle(
+                                    color: bg.contains('O-') ? Colors.redAccent : textPrimary,
+                                    fontWeight: bg.contains('O-') ? FontWeight.bold : FontWeight.normal,
+                                  ),
+                                ),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) setState(() => _selectedBloodGroup = val);
+                            },
+                          ),
+                          const SizedBox(height: 14),
+
+                          // Preferred Hospital
+                          DropdownButtonFormField<String>(
+                            value: _preferredHospital,
+                            isExpanded: true,
+                            dropdownColor: cardBg,
+                            style: TextStyle(color: textPrimary, fontSize: 12),
+                            decoration: _inputDecoration(
+                              label: 'Preferred Partner Hospital',
+                              prefixIcon: Icons.local_hospital_outlined,
+                              isDark: isDark,
+                            ),
+                            items: _hospitals.map((h) {
+                              return DropdownMenuItem(
+                                value: h,
+                                child: Text(h, overflow: TextOverflow.ellipsis),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) setState(() => _preferredHospital = val);
+                            },
+                          ),
+                          const SizedBox(height: 18),
                         ],
 
-                        // Email
+                        // COMMON FIELDS (Email & Password)
                         TextFormField(
                           controller: _emailController,
                           keyboardType: TextInputType.emailAddress,
                           style: TextStyle(color: textPrimary, fontSize: 14),
-                          cursorColor: primaryColor,
                           decoration: _inputDecoration(
                             label: 'Email Address',
                             prefixIcon: Icons.email_outlined,
                             isDark: isDark,
                           ),
                           validator: (val) {
-                            if (val == null || val.trim().isEmpty) {
-                              return 'Please enter your email';
+                            if (val == null || val.trim().isEmpty || !val.contains('@')) {
+                              return 'Please enter a valid email address';
                             }
                             return null;
                           },
                         ),
-                        const SizedBox(height: 12),
+                        const SizedBox(height: 14),
 
-                        // Password
                         TextFormField(
                           controller: _passwordController,
                           obscureText: _obscurePassword,
                           style: TextStyle(color: textPrimary, fontSize: 14),
-                          cursorColor: primaryColor,
                           decoration: _inputDecoration(
-                            label: 'Password',
+                            label: 'Password (min 6 characters)',
                             prefixIcon: Icons.lock_outline_rounded,
                             isDark: isDark,
                             suffixIcon: IconButton(
                               icon: Icon(
-                                _obscurePassword
-                                    ? Icons.visibility_off_outlined
-                                    : Icons.visibility_outlined,
-                                color: textMuted,
+                                _obscurePassword ? Icons.visibility_off_rounded : Icons.visibility_rounded,
+                                color: textSecondary,
                                 size: 20,
                               ),
-                              onPressed: () {
-                                setState(() => _obscurePassword = !_obscurePassword);
-                              },
+                              onPressed: () => setState(() => _obscurePassword = !_obscurePassword),
                             ),
                           ),
                           validator: (val) {
-                            if (val == null || val.trim().length < 6) {
+                            if (val == null || val.length < 6) {
                               return 'Password must be at least 6 characters';
                             }
                             return null;
                           },
                         ),
-                        const SizedBox(height: 20),
+                        const SizedBox(height: 24),
 
-                        // Submit
+                        // SUBMIT BUTTON
                         SizedBox(
-                          width: double.infinity,
+                          height: 52,
                           child: FilledButton(
-                            onPressed: _isLoading ? null : _submit,
                             style: FilledButton.styleFrom(
-                              backgroundColor: primaryColor,
-                              foregroundColor: isDark ? const Color(0xFF030E22) : Colors.white,
-                              padding: const EdgeInsets.symmetric(vertical: 14),
-                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                              backgroundColor: _isSignUp && _selectedPlan == 'maternal'
+                                  ? const Color(0xFFEC4899)
+                                  : primaryColor,
+                              foregroundColor: Colors.white,
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                              elevation: 2,
                             ),
+                            onPressed: _isLoading ? null : _submit,
                             child: _isLoading
                                 ? const SizedBox(
-                                    height: 20,
-                                    width: 20,
-                                    child: CircularProgressIndicator(strokeWidth: 2.2, color: Colors.white),
+                                    width: 22,
+                                    height: 22,
+                                    child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2.5),
                                   )
                                 : Text(
-                                    _isSignUp ? 'Create My Solace Shield' : 'Sign In to Solace',
-                                    style: const TextStyle(fontWeight: FontWeight.w900, fontSize: 14),
+                                    _isSignUp
+                                        ? (_selectedPlan == 'maternal'
+                                            ? 'ACTIVATE MATERNAL SHIELD'
+                                            : 'ACTIVATE EMERGENCY SHIELD')
+                                        : 'SIGN IN TO DISPATCH DESK',
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w900,
+                                      fontSize: 13,
+                                      letterSpacing: 0.8,
+                                    ),
                                   ),
                           ),
                         ),
                       ],
                     ),
                   ),
-                  const SizedBox(height: 16),
+                  const SizedBox(height: 20),
 
-                  // Switch between sign in / sign up
-                  Center(
-                    child: TextButton(
-                      onPressed: () {
-                        HapticFeedback.selectionClick();
-                        setState(() {
-                          _isSignUp = !_isSignUp;
-                          _errorMessage = null;
-                        });
-                      },
-                      child: Text(
-                        _isSignUp
-                            ? 'Already have an account? Sign in'
-                            : "Don't have an account? Register with Care Plan",
-                        style: TextStyle(
-                          color: primaryColor,
-                          fontWeight: FontWeight.w700,
-                          fontSize: 12.5,
-                        ),
-                      ),
-                    ),
+                  // FOOTER
+                  Text(
+                    'Solace EMS • 24/7 Rapid Ambulance & Hospital Intake Network',
+                    style: TextStyle(fontSize: 11, color: textSecondary),
                   ),
                 ],
               ),
