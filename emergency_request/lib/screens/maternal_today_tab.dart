@@ -10,6 +10,8 @@ class MaternalTodayTab extends StatefulWidget {
   final VoidCallback onOpenMissionTracker;
   final Function(String condition, int priority)? onTriggerFastPass;
   final Map<String, dynamic>? activeEmergency;
+  final VoidCallback? onOpenShieldTab;
+  final VoidCallback? onOpenInsightsTab;
 
   const MaternalTodayTab({
     super.key,
@@ -18,6 +20,8 @@ class MaternalTodayTab extends StatefulWidget {
     required this.onOpenMissionTracker,
     this.onTriggerFastPass,
     this.activeEmergency,
+    this.onOpenShieldTab,
+    this.onOpenInsightsTab,
   });
 
   @override
@@ -27,6 +31,7 @@ class MaternalTodayTab extends StatefulWidget {
 class _MaternalTodayTabState extends State<MaternalTodayTab> {
   final MaternalCareService _maternalService = MaternalCareService();
   int _selectedDayIndex = 3; // Index in the 7-day strip (middle = Today)
+  int _unreadAlertCount = 2; // Unread notification badge counter
 
   @override
   void initState() {
@@ -142,105 +147,138 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Top Header Bar ─────────────────────────────────────────────────────────
+  // ── Top Header Bar (Interactive Roles: Profile, Month, Alerts, Support) ───
   Widget _buildTopAppBar(bool isDark) {
     final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
 
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        // Bear Avatar / Profile badge
-        Container(
-          width: 38,
-          height: 38,
-          decoration: BoxDecoration(
-            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFE8DC),
-            shape: BoxShape.circle,
-            border: Border.all(
-              color: const Color(0xFFFF8A65).withValues(alpha: 0.6),
-              width: 1.5,
-            ),
-          ),
-          child: Stack(
-            alignment: Alignment.center,
-            children: [
-              const Text('🐻', style: TextStyle(fontSize: 19)),
-              Positioned(
-                top: 2,
-                right: 2,
-                child: Container(
-                  width: 8,
-                  height: 8,
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFFF4081),
-                    shape: BoxShape.circle,
-                  ),
+        // 1. Bear Avatar: Opens Member Quick Medical Shield Sheet
+        InkWell(
+          onTap: () => _showQuickProfileSheet(context, isDark),
+          borderRadius: BorderRadius.circular(22),
+          child: Container(
+            width: 40,
+            height: 40,
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFE8DC),
+              shape: BoxShape.circle,
+              border: Border.all(
+                color: const Color(0xFFFF8A65).withOpacity(0.6),
+                width: 1.5,
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.06),
+                  blurRadius: 4,
+                  offset: const Offset(0, 2),
                 ),
-              ),
-            ],
-          ),
-        ),
-
-        // Month Title & Calendar Icon
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              _monthName,
-              style: TextStyle(
-                fontSize: 17,
-                fontWeight: FontWeight.w800,
-                color: textColor,
-                letterSpacing: -0.3,
-              ),
+              ],
             ),
-            const SizedBox(width: 6),
-            Icon(
-              Icons.calendar_today_rounded,
-              size: 16,
-              color: isDark ? const Color(0xFFFF8A65) : const Color(0xFFD84315),
-            ),
-          ],
-        ),
-
-        // Notification Bell with badge & Options Menu
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Stack(
-              clipBehavior: Clip.none,
+            child: Stack(
+              alignment: Alignment.center,
               children: [
-                Icon(
-                  Icons.notifications_none_rounded,
-                  size: 24,
-                  color: textColor,
-                ),
+                const Text('🐻', style: TextStyle(fontSize: 20)),
                 Positioned(
-                  top: -3,
-                  right: -3,
+                  top: 2,
+                  right: 2,
                   child: Container(
-                    padding: const EdgeInsets.all(3.5),
+                    width: 9,
+                    height: 9,
                     decoration: const BoxDecoration(
                       color: Color(0xFFFF4081),
                       shape: BoxShape.circle,
-                    ),
-                    child: const Text(
-                      '2',
-                      style: TextStyle(
-                        color: Colors.white,
-                        fontSize: 9,
-                        fontWeight: FontWeight.bold,
-                      ),
                     ),
                   ),
                 ),
               ],
             ),
-            const SizedBox(width: 14),
-            Icon(
-              Icons.more_horiz_rounded,
-              size: 24,
-              color: textColor,
+          ),
+        ),
+
+        // 2. Month Title & Calendar Icon: Opens Month Calendar Overview
+        InkWell(
+          onTap: () => _showMonthPickerSheet(context, isDark),
+          borderRadius: BorderRadius.circular(10),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _monthName,
+                  style: TextStyle(
+                    fontSize: 17,
+                    fontWeight: FontWeight.w800,
+                    color: textColor,
+                    letterSpacing: -0.3,
+                  ),
+                ),
+                const SizedBox(width: 6),
+                Icon(
+                  Icons.calendar_today_rounded,
+                  size: 16,
+                  color: isDark ? const Color(0xFFFF8A65) : const Color(0xFFD84315),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // 3. Notification Bell (with unread badge) & Support Options Menu
+        Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            InkWell(
+              onTap: () => _showNotificationsSheet(context, isDark),
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Stack(
+                  clipBehavior: Clip.none,
+                  children: [
+                    Icon(
+                      Icons.notifications_none_rounded,
+                      size: 24,
+                      color: textColor,
+                    ),
+                    if (_unreadAlertCount > 0)
+                      Positioned(
+                        top: -3,
+                        right: -3,
+                        child: Container(
+                          padding: const EdgeInsets.all(3.5),
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFFF4081),
+                            shape: BoxShape.circle,
+                          ),
+                          child: Text(
+                            '$_unreadAlertCount',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 9,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+            const SizedBox(width: 6),
+            InkWell(
+              onTap: () => _showSupportOptionsSheet(context, isDark),
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.all(6),
+                child: Icon(
+                  Icons.more_horiz_rounded,
+                  size: 24,
+                  color: textColor,
+                ),
+              ),
             ),
           ],
         ),
@@ -985,6 +1023,385 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           ),
         ],
       ),
+    );
+  }
+
+  // ── 1. Bear Avatar: Member Quick Medical Shield Sheet ──────────────────────
+  void _showQuickProfileSheet(BuildContext context, bool isDark) {
+    HapticFeedback.mediumImpact();
+    final cardBg = isDark ? AppTheme.darkCard : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(22, 12, 22, 30),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Row(
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFFE8DC),
+                      shape: BoxShape.circle,
+                      border: Border.all(color: const Color(0xFFFF8A65), width: 2),
+                    ),
+                    child: const Center(child: Text('🐻', style: TextStyle(fontSize: 26))),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          widget.profile.fullName.isNotEmpty ? widget.profile.fullName : 'Solace Member',
+                          style: TextStyle(fontSize: 16.5, fontWeight: FontWeight.w900, color: textColor),
+                        ),
+                        const SizedBox(height: 3),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFEC4899).withOpacity(0.15),
+                            borderRadius: BorderRadius.circular(6),
+                          ),
+                          child: const Text(
+                            '🌸 Maternal Care Plan • Active Shield',
+                            style: TextStyle(
+                              color: Color(0xFFEC4899),
+                              fontSize: 10,
+                              fontWeight: FontWeight.w900,
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 18),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(16),
+                  border: Border.all(color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailMetricRow('Gestational Age', '$_weeks Weeks $_days Days', isDark),
+                    _buildDetailMetricRow('Blood Shield', widget.profile.bloodGroup ?? 'O- (Rare Blood Shield)', isDark),
+                    _buildDetailMetricRow('Genotype', widget.profile.genotype ?? 'AA', isDark),
+                    _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalName ?? 'LifeCare Private Clinic', isDark),
+                    _buildDetailMetricRow('Emergency Phone', widget.profile.phone.isNotEmpty ? widget.profile.phone : '+234 800 SOLACE', isDark),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0284C7),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 13),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: () {
+                  Navigator.of(ctx).pop();
+                  widget.onOpenShieldTab?.call();
+                },
+                icon: const Icon(Icons.shield_outlined, size: 18),
+                label: const Text('Open Full Medical Profile & Shield', style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── 2. Notification Bell: Maternal Care Notifications Center ───────────────
+  void _showNotificationsSheet(BuildContext context, bool isDark) {
+    HapticFeedback.mediumImpact();
+    final cardBg = isDark ? AppTheme.darkCard : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (modalCtx, setModalState) {
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(22, 12, 22, 26),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 40,
+                      height: 4,
+                      decoration: BoxDecoration(
+                        color: Colors.grey.shade400,
+                        borderRadius: BorderRadius.circular(2),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      Row(
+                        children: [
+                          const Icon(Icons.notifications_active_rounded, color: Color(0xFFFF8A65), size: 22),
+                          const SizedBox(width: 8),
+                          Text(
+                            'Care Alerts & Notifications',
+                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textColor),
+                          ),
+                        ],
+                      ),
+                      if (_unreadAlertCount > 0)
+                        TextButton(
+                          onPressed: () {
+                            setState(() => _unreadAlertCount = 0);
+                            setModalState(() {});
+                          },
+                          child: const Text('Mark all as read', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  // Notification Card 1
+                  _buildNotificationTile(
+                    icon: '🚨',
+                    iconBg: Colors.red.shade100,
+                    title: 'Direct-to-Bed Dispatch Pre-Alert Armed',
+                    body: 'Your live GPS coordinates are connected to Ibadan Private Network. Response time: < 8 mins.',
+                    time: 'Just now',
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 10),
+                  // Notification Card 2
+                  _buildNotificationTile(
+                    icon: '🤰',
+                    iconBg: const Color(0xFFFFE8DC),
+                    title: 'Week $_weeks Clinical Milestone Alert',
+                    body: 'Third trimester protocol active. Confirm your hospital delivery bag and blood bank reserve.',
+                    time: '2 hours ago',
+                    isDark: isDark,
+                  ),
+                  const SizedBox(height: 10),
+                  // Notification Card 3
+                  _buildNotificationTile(
+                    icon: '💧',
+                    iconBg: Colors.blue.shade100,
+                    title: 'Daily Hydration & Kick Counter Reminder',
+                    body: 'Keep baby safe by logging your afternoon kicks and feelings in your Insights tab.',
+                    time: 'Today 9:00 AM',
+                    isDark: isDark,
+                  ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Widget _buildNotificationTile({
+    required String icon,
+    required Color iconBg,
+    required String title,
+    required String body,
+    required String time,
+    required bool isDark,
+  }) {
+    final titleColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final bodyColor = isDark ? Colors.white70 : const Color(0xFF475569);
+
+    return Container(
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(8),
+            decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
+            child: Text(icon, style: const TextStyle(fontSize: 16)),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    Expanded(
+                      child: Text(title, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: titleColor)),
+                    ),
+                    Text(time, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                  ],
+                ),
+                const SizedBox(height: 2),
+                Text(body, style: TextStyle(fontSize: 11, color: bodyColor, height: 1.3)),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── 3. Month Title: Month Calendar Picker Sheet ───────────────────────────
+  void _showMonthPickerSheet(BuildContext context, bool isDark) {
+    HapticFeedback.selectionClick();
+    final cardBg = isDark ? AppTheme.darkCard : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(22, 12, 22, 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Icon(Icons.calendar_month_rounded, color: Color(0xFFFF8A65), size: 22),
+                  const SizedBox(width: 8),
+                  Text('Gestational Timeline Overview', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textColor)),
+                ],
+              ),
+              const SizedBox(height: 14),
+              Container(
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                  borderRadius: BorderRadius.circular(16),
+                ),
+                child: Column(
+                  children: [
+                    _buildDetailMetricRow('Active Month', 'October 2026', isDark),
+                    _buildDetailMetricRow('Current Progress', 'Week $_weeks • $_trimesterLabel', isDark),
+                    _buildDetailMetricRow('Estimated Delivery Date', widget.profile.edd ?? 'Dec 15, 2026', isDark),
+                    _buildDetailMetricRow('Days Remaining', '18 Days to full term (Day 280)', isDark),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  // ── 4. Options Menu: Quick Support & Emergency Handover ────────────────────
+  void _showSupportOptionsSheet(BuildContext context, bool isDark) {
+    HapticFeedback.mediumImpact();
+    final cardBg = isDark ? AppTheme.darkCard : Colors.white;
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: cardBg,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
+      ),
+      builder: (ctx) {
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(22, 12, 22, 26),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(color: Colors.grey.shade400, borderRadius: BorderRadius.circular(2)),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Text('Quick Support & Assistance', style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textColor)),
+              const SizedBox(height: 14),
+              ListTile(
+                leading: const Icon(Icons.phone_in_talk_rounded, color: Color(0xFF10B981)),
+                title: const Text('24/7 Obstetric Specialist Triage Line', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
+                subtitle: const Text('Direct verbal handover with emergency midwife', style: TextStyle(fontSize: 11)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Dialing Solace 24/7 Obstetric Triage Line (+234 800 SOLACE)...')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.share_location_rounded, color: Color(0xFF0284C7)),
+                title: const Text('Share Live GPS with Next-of-Kin', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
+                subtitle: const Text('Broadcast realtime location to family contacts', style: TextStyle(fontSize: 11)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Live GPS tracking link copied to clipboard!')),
+                  );
+                },
+              ),
+              ListTile(
+                leading: const Icon(Icons.local_hospital_rounded, color: Color(0xFFFF8A65)),
+                title: const Text('Hospital Intake Center Hotline', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
+                subtitle: Text(widget.profile.preferredHospitalName ?? 'LifeCare Private Clinic', style: const TextStyle(fontSize: 11)),
+                onTap: () {
+                  Navigator.of(ctx).pop();
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
