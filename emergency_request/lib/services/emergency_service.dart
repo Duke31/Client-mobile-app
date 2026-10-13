@@ -24,7 +24,7 @@ class EmergencyService {
     required double longitude,
     String? address,
     String emergencyType = 'Other',
-    int priority = 2,
+    int priority = 1,
     String notes = '',
     String contactPhone = '',
     String ageBand = 'unknown',
@@ -62,7 +62,7 @@ class EmergencyService {
     required double longitude,
     String? address,
     String emergencyType = 'Other',
-    int priority = 2,
+    int priority = 1,
     String notes = '',
     String contactPhone = '',
     String ageBand = 'unknown',
@@ -97,10 +97,11 @@ class EmergencyService {
     final ageNote = (ageBand.trim().isNotEmpty && ageBand.trim().toLowerCase() != 'unknown')
         ? 'Age band: ${ageBand.trim()}'
         : null;
+
     final notesMerged = [
       if (notes.trim().isNotEmpty) notes.trim(),
-      if (typeNote != null) typeNote,
-      if (ageNote != null) ageNote,
+      if (typeNote != null && !notes.contains(typeNote)) typeNote,
+      if (ageNote != null && !notes.contains(ageNote)) ageNote,
     ].join(' | ');
 
     final params = <String, dynamic>{
