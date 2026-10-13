@@ -2,14 +2,15 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../models/member_profile.dart';
 import '../services/client_request_detail.dart';
 import '../theme/app_theme.dart';
 import 'dashboard_tab.dart';
-import 'request_screen.dart';
 import 'health_library_tab.dart';
+import 'history_screen.dart';
 import 'profile_screen.dart';
-import 'submitted_screen.dart';
+import 'request_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -21,13 +22,13 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final GlobalKey<RequestScreenState> _requestScreenKey = GlobalKey<RequestScreenState>();
+
   int _currentIndex = 0;
+  MemberProfile _profile = const MemberProfile(userId: '');
   Map<String, dynamic>? _activeEmergency;
   Timer? _activeCheckTimer;
-  StreamSubscription<List<Map<String, dynamic>>>? _realtimeSub;
-
-  MemberProfile _profile = const MemberProfile(userId: '');
-  final GlobalKey<RequestScreenState> _requestScreenKey = GlobalKey<RequestScreenState>();
+  StreamSubscription? _realtimeSub;
 
   @override
   void initState() {
@@ -44,7 +45,9 @@ class _HomeScreenState extends State<HomeScreen> {
       _realtimeSub = _supabase
           .from('emergency_requests')
           .stream(primaryKey: ['id'])
-          .listen((_) => _checkActiveEmergency(), onError: (_) {});
+          .listen((_) {
+            _checkActiveEmergency();
+          }, onError: (_) {});
     } catch (_) {}
   }
 
@@ -115,7 +118,7 @@ class _HomeScreenState extends State<HomeScreen> {
         _activeEmergency = active;
       });
     } catch (e) {
-      debugPrint('Active emergency check notice: $e');
+      debugPrint('Active emergency check error: $e');
     }
   }
 
@@ -143,14 +146,14 @@ class _HomeScreenState extends State<HomeScreen> {
     final unselectedColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
 
     final pages = [
-      // Tab 0: Dashboard (Role-Adaptive)
+      // Tab 0: Role-Adaptive Clinical Care Dashboard
       DashboardTab(
         profile: _profile,
         onTriggerSos: () => setState(() => _currentIndex = 1),
         onTriggerFastPass: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
       ),
 
-      // Tab 1: Core 1-Tap Emergency SOS Engine (Always Accessible)
+      // Tab 1: Tactical SOS Engine & Live Telemetry Control Room
       RequestScreen(
         key: _requestScreenKey,
         initialProfile: _profile,
@@ -171,12 +174,17 @@ class _HomeScreenState extends State<HomeScreen> {
         },
       ),
 
-      // Tab 2: Health Library & Red Flags
+      // Tab 2: Closed Incident Records & Patient Service Reviews
+      HistoryScreen(
+        onSwitchToSos: () => setState(() => _currentIndex = 1),
+      ),
+
+      // Tab 3: Health Library & Red Flags
       HealthLibraryTab(
         onDispatchCondition: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
       ),
 
-      // Tab 3: Member Medical Profile & Hospital Shield
+      // Tab 4: Member Medical ID & Care Plan Shield
       ProfileScreen(
         onProfileUpdated: () {
           _fetchProfile();
@@ -215,14 +223,14 @@ class _HomeScreenState extends State<HomeScreen> {
               if (states.contains(WidgetState.selected)) {
                 return TextStyle(
                   color: activeColor,
-                  fontSize: 11,
+                  fontSize: 10.5,
                   fontWeight: FontWeight.w800,
                   letterSpacing: 0.2,
                 );
               }
               return TextStyle(
                 color: unselectedColor,
-                fontSize: 10.5,
+                fontSize: 10,
                 fontWeight: FontWeight.w500,
               );
             }),
@@ -239,14 +247,14 @@ class _HomeScreenState extends State<HomeScreen> {
             backgroundColor: navBg,
             elevation: 0,
             destinations: [
-              // Tab 1: Dashboard
-              NavigationDestination(
-                icon: const Icon(Icons.dashboard_outlined),
-                selectedIcon: const Icon(Icons.dashboard_rounded),
-                label: 'Dashboard',
+              // Tab 0: Dashboard
+              const NavigationDestination(
+                icon: Icon(Icons.dashboard_outlined),
+                selectedIcon: Icon(Icons.dashboard_rounded),
+                label: 'Care Desk',
               ),
 
-              // Tab 2: SOS Engine
+              // Tab 1: SOS Engine / Live Mission
               NavigationDestination(
                 icon: Badge(
                   isLabelVisible: hasActive,
@@ -261,6 +269,13 @@ class _HomeScreenState extends State<HomeScreen> {
                   child: const Icon(Icons.emergency_rounded, color: Color(0xFFFF334B)),
                 ),
                 label: hasActive ? 'Live Mission' : 'SOS Engine',
+              ),
+
+              // Tab 2: Records & Reviews
+              const NavigationDestination(
+                icon: Icon(Icons.history_rounded),
+                selectedIcon: Icon(Icons.history_edu_rounded),
+                label: 'Records',
               ),
 
               // Tab 3: Health Library
