@@ -27,7 +27,7 @@ class _AuthScreenState extends State<AuthScreen> {
   String? _errorMessage;
 
   // Care Plan Onboarding State
-  String _selectedPlan = 'maternal'; // 'maternal' | 'standard'
+  String _selectedPlan = 'standard'; // 'standard' (default) | 'maternal'
   int _gestationalWeeks = 32;
   String _selectedBloodGroup = 'O- (Rare Blood Shield)';
   String _selectedGenotype = 'AA';
@@ -466,76 +466,7 @@ class _AuthScreenState extends State<AuthScreen> {
                               ),
                               const SizedBox(height: 8),
 
-                              // Plan A: Maternal & Obstetric Plan
-                              InkWell(
-                                onTap: () {
-                                  HapticFeedback.selectionClick();
-                                  setState(() => _selectedPlan = 'maternal');
-                                },
-                                borderRadius: BorderRadius.circular(14),
-                                child: Container(
-                                  padding: const EdgeInsets.all(12),
-                                  decoration: BoxDecoration(
-                                    color: _selectedPlan == 'maternal'
-                                        ? const Color(0xFFEC4899).withValues(alpha: 0.12)
-                                        : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC)),
-                                    borderRadius: BorderRadius.circular(14),
-                                    border: Border.all(
-                                      color: _selectedPlan == 'maternal'
-                                          ? const Color(0xFFEC4899)
-                                          : cardBorder,
-                                      width: _selectedPlan == 'maternal' ? 2.0 : 1.0,
-                                    ),
-                                  ),
-                                  child: Row(
-                                    children: [
-                                      Container(
-                                        padding: const EdgeInsets.all(8),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFEC4899).withValues(alpha: 0.2),
-                                          shape: BoxShape.circle,
-                                        ),
-                                        child: const Text('🌸', style: TextStyle(fontSize: 20)),
-                                      ),
-                                      const SizedBox(width: 12),
-                                      Expanded(
-                                        child: Column(
-                                          crossAxisAlignment: CrossAxisAlignment.start,
-                                          children: [
-                                            const Row(
-                                              children: [
-                                                Text(
-                                                  'Maternal & Obstetric Care Plan',
-                                                  style: TextStyle(
-                                                    fontWeight: FontWeight.w800,
-                                                    fontSize: 13,
-                                                  ),
-                                                ),
-                                              ],
-                                            ),
-                                            Text(
-                                              'Gestational tracking, kick counter, labor pre-alert & rare blood shield.',
-                                              style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
-                                            ),
-                                          ],
-                                        ),
-                                      ),
-                                      Icon(
-                                        _selectedPlan == 'maternal'
-                                            ? Icons.check_circle_rounded
-                                            : Icons.radio_button_off_rounded,
-                                        color: _selectedPlan == 'maternal'
-                                            ? const Color(0xFFEC4899)
-                                            : textSecondary,
-                                        size: 20,
-                                      ),
-                                    ],
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 8),
-
-                              // Plan B: Standard Emergency Shield
+                              // Plan A: Standard Emergency Shield (Default)
                               InkWell(
                                 onTap: () {
                                   HapticFeedback.selectionClick();
@@ -571,12 +502,32 @@ class _AuthScreenState extends State<AuthScreen> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            const Text(
-                                              'Standard Emergency Shield',
-                                              style: TextStyle(
-                                                fontWeight: FontWeight.w800,
-                                                fontSize: 13,
-                                              ),
+                                            Row(
+                                              children: [
+                                                const Text(
+                                                  'Standard Emergency Shield',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                                  decoration: BoxDecoration(
+                                                    color: primaryColor.withValues(alpha: 0.15),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: Text(
+                                                    'DEFAULT',
+                                                    style: TextStyle(
+                                                      fontSize: 8.5,
+                                                      fontWeight: FontWeight.w900,
+                                                      color: primaryColor,
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
                                             ),
                                             Text(
                                               'VIP direct-to-bed intake for acute trauma, cardiac, pediatric & acute cases.',
@@ -591,6 +542,91 @@ class _AuthScreenState extends State<AuthScreen> {
                                             : Icons.radio_button_off_rounded,
                                         color: _selectedPlan == 'standard'
                                             ? primaryColor
+                                            : textSecondary,
+                                        size: 20,
+                                      ),
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              const SizedBox(height: 8),
+
+                              // Plan B: Maternal & Obstetric Plan (Subscription)
+                              InkWell(
+                                onTap: () {
+                                  HapticFeedback.selectionClick();
+                                  setState(() => _selectedPlan = 'maternal');
+                                },
+                                borderRadius: BorderRadius.circular(14),
+                                child: Container(
+                                  padding: const EdgeInsets.all(12),
+                                  decoration: BoxDecoration(
+                                    color: _selectedPlan == 'maternal'
+                                        ? const Color(0xFFEC4899).withValues(alpha: 0.12)
+                                        : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC)),
+                                    borderRadius: BorderRadius.circular(14),
+                                    border: Border.all(
+                                      color: _selectedPlan == 'maternal'
+                                          ? const Color(0xFFEC4899)
+                                          : cardBorder,
+                                      width: _selectedPlan == 'maternal' ? 2.0 : 1.0,
+                                    ),
+                                  ),
+                                  child: Row(
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.all(8),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEC4899).withValues(alpha: 0.2),
+                                          shape: BoxShape.circle,
+                                        ),
+                                        child: const Text('🌸', style: TextStyle(fontSize: 20)),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      Expanded(
+                                        child: Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            Row(
+                                              children: [
+                                                const Text(
+                                                  'Maternal & Obstetric Plan',
+                                                  style: TextStyle(
+                                                    fontWeight: FontWeight.w800,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                                const SizedBox(width: 6),
+                                                Container(
+                                                  padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
+                                                  decoration: BoxDecoration(
+                                                    color: const Color(0xFFEC4899).withValues(alpha: 0.15),
+                                                    borderRadius: BorderRadius.circular(4),
+                                                  ),
+                                                  child: const Text(
+                                                    'SUBSCRIPTION',
+                                                    style: TextStyle(
+                                                      fontSize: 8.5,
+                                                      fontWeight: FontWeight.w900,
+                                                      color: Color(0xFFEC4899),
+                                                    ),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                            Text(
+                                              'Gestational tracking, daily wellness insights, labor pre-alert & rare blood shield.',
+                                              style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
+                                            ),
+                                          ],
+                                        ),
+                                      ),
+                                      Icon(
+                                        _selectedPlan == 'maternal'
+                                            ? Icons.check_circle_rounded
+                                            : Icons.radio_button_off_rounded,
+                                        color: _selectedPlan == 'maternal'
+                                            ? const Color(0xFFEC4899)
                                             : textSecondary,
                                         size: 20,
                                       ),
@@ -785,7 +821,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                         ? (_selectedPlan == 'maternal'
                                             ? 'ACTIVATE MATERNAL SHIELD'
                                             : 'ACTIVATE EMERGENCY SHIELD')
-                                        : 'SIGN IN TO DISPATCH DESK',
+                                        : 'SIGN IN TO SOLACE SHIELD',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w900,
                                       fontSize: 13,
