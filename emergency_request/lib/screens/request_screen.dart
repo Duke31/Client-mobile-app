@@ -1,4 +1,4 @@
-﻿import '../utils/error_sanitizer.dart';
+import '../utils/error_sanitizer.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -1249,19 +1249,6 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
       'priority': 2,
     },
   ];
-
-  Future<void> triggerConditionDispatch(String condition, int priority) async {
-    final fix = _fix ?? const LocationFix(latitude: 6.5244, longitude: 3.3792, accuracyMeters: 15);
-    final intake = _IntakeData(
-      condition: condition,
-      priority: priority,
-      ageBand: _profileAgeBand ?? '18-39',
-      contactPhone: _profilePhone,
-      notes: '1-Tap Fast-Pass Priority Dispatch: ' + condition,
-    );
-    await _executeEmergencyRequest(fix, intake);
-  }
-
   @override
   void initState() {
     super.initState();
