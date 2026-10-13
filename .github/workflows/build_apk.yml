@@ -130,7 +130,7 @@ jobs:
           PY
 
       - name: Build Release APK
-        run: flutter build apk --release --dart-define-from-file=config.json
+        run: flutter build apk --release --target-platform=android-arm,android-arm64 --dart-define-from-file=config.json
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4
@@ -146,27 +146,66 @@ jobs:
           SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           if [ -n "$SUPABASE_SERVICE_ROLE_KEY" ] && [ -n "$SUPABASE_URL" ]; then
-            echo "Uploading release APK to Supabase storage app-releases bucket..."
-            # Strip trailing slashes from URL
+            echo "Uploading release APK directly to Supabase storage app-releases bucket via TUS..."
+            APK_PATH="build/app/outputs/flutter-apk/app-release.apk"
+            if [ ! -f "$APK_PATH" ]; then
+              echo "Error: $APK_PATH not found"
+              exit 1
+            fi
+
+            FILE_SIZE=$(wc -c < "$APK_PATH" | tr -d ' ')
+            echo "APK file size: $FILE_SIZE bytes"
+
             CLEAN_URL="${SUPABASE_URL%/}"
-            
-            HTTP_CODE=$(curl -s -w "%{http_code}" -o /tmp/upload_response.json -X POST \
-              "${CLEAN_URL}/storage/v1/object/app-releases/solace-v1.0.apk" \
+            PROJECT_REF=$(echo "$CLEAN_URL" | sed -E 's|https?://([^.]+)\..*|\1|')
+            TUS_ENDPOINT="https://${PROJECT_REF}.storage.supabase.co/storage/v1/upload/resumable"
+            echo "TUS Endpoint: $TUS_ENDPOINT"
+
+            # Delete old objects if exist to prevent 409 conflict
+            DEL_PAYLOAD='{"prefixes":["solace-v1.0.apk","solace-client.apk"]}'
+            curl -s -X DELETE "${CLEAN_URL}/storage/v1/object/app-releases" \
               -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
               -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
-              -H "Content-Type: application/vnd.android.package-archive" \
-              -H "x-upsert: true" \
-              --data-binary "@build/app/outputs/flutter-apk/app-release.apk")
-            
-            echo "Supabase HTTP Response Code: $HTTP_CODE"
-            cat /tmp/upload_response.json || true
-            echo ""
+              -H "Content-Type: application/json" \
+              -d "$DEL_PAYLOAD" || true
 
-            if [ "$HTTP_CODE" -ge 200 ] && [ "$HTTP_CODE" -lt 300 ]; then
-              echo "SUCCESS: solace-v1.0.apk deployed to Supabase Storage."
-            else
-              echo "WARNING: Supabase upload returned HTTP $HTTP_CODE. Check bucket permissions for app-releases."
-            fi
+            for OBJ_NAME in "solace-v1.0.apk" "solace-client.apk"; do
+              echo "Uploading $OBJ_NAME..."
+              B64_BUCKET=$(echo -n "app-releases" | base64 | tr -d '\n')
+              B64_OBJECT=$(echo -n "$OBJ_NAME" | base64 | tr -d '\n')
+              B64_MIME=$(echo -n "application/vnd.android.package-archive" | base64 | tr -d '\n')
+
+              INIT_RESP=$(curl -s -i -X POST "$TUS_ENDPOINT" \
+                -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+                -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+                -H "Tus-Resumable: 1.0.0" \
+                -H "Upload-Length: $FILE_SIZE" \
+                -H "Upload-Metadata: bucketName $B64_BUCKET,objectName $B64_OBJECT,contentType $B64_MIME" \
+                -H "x-upsert: true")
+
+              LOCATION=$(echo "$INIT_RESP" | grep -i '^location:' | awk '{print $2}' | tr -d '\r\n')
+              if [ -z "$LOCATION" ]; then
+                echo "Failed to initialize TUS for $OBJ_NAME. Header output:"
+                echo "$INIT_RESP"
+                continue
+              fi
+
+              PATCH_HTTP=$(curl -s -w "%{http_code}" -o /tmp/tus_res.txt -X PATCH "$LOCATION" \
+                -H "Authorization: Bearer ${SUPABASE_SERVICE_ROLE_KEY}" \
+                -H "apikey: ${SUPABASE_SERVICE_ROLE_KEY}" \
+                -H "Tus-Resumable: 1.0.0" \
+                -H "Upload-Offset: 0" \
+                -H "Content-Type: application/offset+octet-stream" \
+                --data-binary "@$APK_PATH")
+
+              echo "TUS PATCH $OBJ_NAME result: HTTP $PATCH_HTTP"
+              if [ "$PATCH_HTTP" -eq 204 ] || [ "$PATCH_HTTP" -eq 200 ]; then
+                echo "SUCCESS: $OBJ_NAME deployed to Supabase Storage."
+              else
+                echo "WARNING: Failed to upload $OBJ_NAME (HTTP $PATCH_HTTP)"
+                cat /tmp/tus_res.txt || true
+              fi
+            done
           else
             echo "Notice: SUPABASE_SERVICE_ROLE_KEY or SUPABASE_URL secret not set. Skipping direct storage push."
           fi
