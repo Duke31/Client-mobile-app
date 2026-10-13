@@ -322,7 +322,19 @@ class RequestScreenState extends State<RequestScreen>
     final hasActive = _activeMission != null;
 
     if (hasActive) {
-      return _buildActiveMissionHUD(isDark);
+      final reqId = _activeMission!['id']?.toString() ?? '';
+      return SubmittedScreen(
+        requestId: reqId,
+        latitude: (_activeMission!['patient_lat'] as num?)?.toDouble(),
+        longitude: (_activeMission!['patient_lng'] as num?)?.toDouble(),
+        address: _activeMission!['patient_address']?.toString(),
+        onReturnHome: () {
+          setState(() {
+            _activeMission = null;
+          });
+          _checkActiveMission();
+        },
+      );
     }
 
     return Scaffold(
