@@ -1,31 +1,37 @@
-import '../utils/error_sanitizer.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 import '../maps/mapbox_geocoding.dart';
 import '../maps/mapbox_map_view.dart';
+import '../models/member_profile.dart';
+import '../services/cluster_resolver.dart';
 import '../services/emergency_service.dart';
-import '../services/emergency_sms_fallback.dart';
 import '../services/location_service.dart';
 import '../theme/app_theme.dart';
-import 'profile_screen.dart';
 import 'submitted_screen.dart';
 
-const LatLng kDefaultCenter = LatLng(6.5244, 3.3792);
+const LatLng kDefaultCenter = LatLng(7.3775, 3.9470); // Ibadan default
 
 class RequestScreen extends StatefulWidget {
   final Function? onEmergencyCreated;
+  final MemberProfile? initialProfile;
 
-  const RequestScreen({super.key, this.onEmergencyCreated});
+  const RequestScreen({
+    super.key,
+    this.onEmergencyCreated,
+    this.initialProfile,
+  });
 
   @override
-  State<RequestScreen> createState() => _RequestScreenState();
+  State<RequestScreen> createState() => RequestScreenState();
 }
 
-class _RequestScreenState extends State<RequestScreen>
+class RequestScreenState extends State<RequestScreen>
     with SingleTickerProviderStateMixin {
   final _location = const LocationService();
   final _geocoding = MapboxGeocoding();
@@ -40,18 +46,13 @@ class _RequestScreenState extends State<RequestScreen>
   LocationFix? _fix;
   String _address = '';
 
-  // Active mission tracking state
+  MemberProfile _profile = const MemberProfile(userId: '');
+  bool _showMaternalPasses = true;
+
+  // Active mission state
   Map<String, dynamic>? _activeMission;
   Timer? _activeMissionTimer;
   StreamSubscription? _realtimeSub;
-
-  // Cached profile data
-  String? _profileName;
-  String? _profilePhone;
-  String? _profileAgeBand;
-  String? _profileBloodGroup;
-  String? _profileAllergies;
-  String? _profileConditions;
 
   @override
   void initState() {
@@ -59,19 +60,25 @@ class _RequestScreenState extends State<RequestScreen>
 
     _pulseController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 1500),
-    )..repeat();
+      duration: const Duration(milliseconds: 1400),
+    )..repeat(reverse: true);
 
-    _pulseScale = Tween<double>(begin: 1.0, end: 1.45).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeOutQuad),
+    _pulseScale = Tween<double>(begin: 1.0, end: 1.15).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
 
-    _pulseOpacity = Tween<double>(begin: 0.65, end: 0.0).animate(
-      CurvedAnimation(parent: _pulseController, curve: Curves.easeOutQuad),
+    _pulseOpacity = Tween<double>(begin: 0.7, end: 0.15).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
     );
+
+    if (widget.initialProfile != null) {
+      _profile = widget.initialProfile!;
+      _showMaternalPasses = _profile.isMaternal;
+    } else {
+      _fetchProfile();
+    }
 
     _loadLocation();
-    _fetchProfileDefaults();
     _checkActiveMission();
 
     _activeMissionTimer = Timer.periodic(const Duration(seconds: 4), (_) {
@@ -82,9 +89,7 @@ class _RequestScreenState extends State<RequestScreen>
       _realtimeSub = Supabase.instance.client
           .from('emergency_requests')
           .stream(primaryKey: ['id'])
-          .listen((_) {
-            _checkActiveMission();
-          }, onError: (_) {});
+          .listen((_) => _checkActiveMission(), onError: (_) {});
     } catch (_) {}
   }
 
@@ -97,15 +102,40 @@ class _RequestScreenState extends State<RequestScreen>
     super.dispose();
   }
 
+  Future<void> _fetchProfile() async {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+    try {
+      final res = await Supabase.instance.client
+          .from('profiles')
+          .select('*')
+          .eq('user_id', userId)
+          .maybeSingle();
+
+      if (res != null && mounted) {
+        setState(() {
+          _profile = MemberProfile.fromMap(res, userId);
+          _showMaternalPasses = _profile.isMaternal;
+        });
+      }
+    } catch (_) {}
+  }
+
   Future<void> _checkActiveMission() async {
     final uid = Supabase.instance.client.auth.currentUser?.id;
     if (uid == null || !mounted) return;
     try {
       final res = await Supabase.instance.client
           .from('emergency_requests')
-          .select('id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, driver_id, drivers(display_name, phone, vehicle_label)')
-          .or('client_user_id.eq.' + uid + ',reported_by_user_id.eq.' + uid)
-          .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
+          .select(
+            'id, status, emergency_type, patient_address, patient_lat, patient_lng, '
+            'created_at, driver_id, hospital_id, notes, drivers(display_name, phone, vehicle_label)',
+          )
+          .or('client_user_id.eq.$uid,reported_by_user_id.eq.$uid')
+          .neq('status', 'Completed')
+          .neq('status', 'Cancelled / failed')
+          .neq('status', 'completed')
+          .neq('status', 'cancelled')
           .order('created_at', ascending: false)
           .limit(1)
           .maybeSingle();
@@ -113,51 +143,7 @@ class _RequestScreenState extends State<RequestScreen>
       if (mounted) {
         setState(() {
           _activeMission = res;
-          if (res == null && _submitting) {
-            _submitting = false;
-          }
-        });
-      }
-    } catch (_) {
-      try {
-        final res = await Supabase.instance.client
-            .from('emergency_requests')
-            .select('id, status, emergency_type, patient_address, patient_lat, patient_lng, created_at, driver_id')
-            .or('client_user_id.eq.' + uid + ',reported_by_user_id.eq.' + uid)
-            .neq('status', 'Completed').neq('status', 'Cancelled / failed').neq('status', 'completed').neq('status', 'cancelled')
-            .order('created_at', ascending: false)
-            .limit(1)
-            .maybeSingle();
-
-        if (mounted) {
-          setState(() {
-            _activeMission = res;
-            if (res == null && _submitting) {
-              _submitting = false;
-            }
-          });
-        }
-      } catch (_) {}
-    }
-  }
-
-  Future<void> _fetchProfileDefaults() async {
-    final userId = Supabase.instance.client.auth.currentUser?.id;
-    if (userId == null) return;
-    try {
-      final res = await Supabase.instance.client
-          .from('profiles')
-          .select('full_name, phone, age_band, blood_group, allergies, chronic_conditions')
-          .eq('user_id', userId)
-          .maybeSingle();
-      if (res != null && mounted) {
-        setState(() {
-          _profileName = res['full_name']?.toString();
-          _profilePhone = res['phone']?.toString();
-          _profileAgeBand = res['age_band']?.toString();
-          _profileBloodGroup = res['blood_group']?.toString();
-          _profileAllergies = res['allergies']?.toString();
-          _profileConditions = res['chronic_conditions']?.toString();
+          if (res == null && _submitting) _submitting = false;
         });
       }
     } catch (_) {}
@@ -173,10 +159,9 @@ class _RequestScreenState extends State<RequestScreen>
       _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
     } catch (_) {}
 
-    _geocoding.reverseGeocode(
-      latitude: fix.latitude,
-      longitude: fix.longitude,
-    ).then((addr) {
+    _geocoding
+        .reverseGeocode(latitude: fix.latitude, longitude: fix.longitude)
+        .then((addr) {
       if (mounted && addr.isNotEmpty) {
         setState(() => _address = addr);
       }
@@ -207,1431 +192,844 @@ class _RequestScreenState extends State<RequestScreen>
     }
   }
 
-  Future<void> _onMapTap(TapPosition _, LatLng point) async {
-    HapticFeedback.lightImpact();
-    await _applyFix(
-      LocationFix(latitude: point.latitude, longitude: point.longitude),
-    );
+  /// Triggered from outside or from fast-pass buttons
+  Future<void> triggerConditionDispatch(String condition, int priority) async {
+    await _executeEmergencyDispatch(condition: condition, priority: priority);
   }
 
-  Future<void> _sendWhatsAppSos() async {
-    if (_fix == null) return;
-    final body = EmergencySmsFallback.buildBody(
-      emergencyType: 'Medical Emergency',
-      latitude: _fix!.latitude,
-      longitude: _fix!.longitude,
-      address: _address,
-      callerPhone: _profilePhone,
-    );
-    final ok = await EmergencySmsFallback.openWhatsApp(body: body);
-    if (!ok && mounted) {
-      await _sendSmsSos();
-    }
-  }
-
-  Future<void> _sendSmsSos() async {
-    if (_fix == null) return;
-    final body = EmergencySmsFallback.buildBody(
-      emergencyType: 'Medical Emergency',
-      latitude: _fix!.latitude,
-      longitude: _fix!.longitude,
-      address: _address,
-      callerPhone: _profilePhone,
-    );
-    final launched = await EmergencySmsFallback.openNativeSms(body: body);
-    if (!launched && mounted) {
+  Future<void> _executeEmergencyDispatch({
+    String? condition,
+    int priority = 1,
+  }) async {
+    if (_submitting) return;
+    if (_fix == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Could not open messaging app. Please dial +2348133355709.'),
+          content: Text('Acquiring high-accuracy GPS... Please wait a second.'),
+          backgroundColor: Colors.amber,
+        ),
+      );
+      await _loadLocation();
+      if (_fix == null) return;
+    }
+
+    HapticFeedback.heavyImpact();
+    setState(() => _submitting = true);
+
+    final supabase = Supabase.instance.client;
+    final fix = _fix!;
+    final clusterId = ClusterResolver.resolveClusterId(fix.latitude, fix.longitude);
+
+    final finalType = condition != null
+        ? (condition.toLowerCase().contains('bleed') ||
+                condition.toLowerCase().contains('water') ||
+                condition.toLowerCase().contains('labor') ||
+                condition.toLowerCase().contains('headache') ||
+                condition.toLowerCase().contains('movement') ||
+                _profile.isMaternal
+            ? 'Obstetric'
+            : condition.toLowerCase().contains('trauma')
+                ? 'Trauma'
+                : condition.toLowerCase().contains('chest') ||
+                        condition.toLowerCase().contains('heart')
+                    ? 'Cardiac'
+                    : condition.toLowerCase().contains('breath')
+                        ? 'Respiratory'
+                        : 'Other')
+        : (_profile.isMaternal ? 'Obstetric' : 'Other');
+
+    // Build Standardized SBAR note
+    final situation = condition ??
+        (_profile.isMaternal ? 'Maternal Obstetric Distress' : 'Medical Emergency Distress');
+    final bgList = <String>[];
+    if (_profile.isMaternal && _profile.gestationalWeeks != null) {
+      bgList.add('${_profile.gestationalWeeks}w');
+    }
+    if (_profile.gravidaPara != null) bgList.add(_profile.gravidaPara!);
+    if (_profile.bloodGroup != null) bgList.add('Blood: ${_profile.bloodGroup}');
+    if (_profile.genotype != null) bgList.add('Genotype: ${_profile.genotype}');
+    if (_profile.allergies != null) bgList.add('Allergies: ${_profile.allergies}');
+    if (_profile.knownRisks.isNotEmpty) {
+      bgList.add('Risks: ${_profile.knownRisks.join(", ")}');
+    }
+    final background = bgList.isNotEmpty ? bgList.join(', ') : 'Standard subscriber baseline';
+
+    final isHemorrhage = condition != null && condition.toLowerCase().contains('bleed');
+    final isProm = condition != null && condition.toLowerCase().contains('water');
+
+    final assessment = 'P$priority Rapid En-Route Intercept ($finalType)';
+    final recommendation = isHemorrhage
+        ? 'Direct-to-Bed, Alert Blood Bank (O-Neg), Prepare L&D Suite'
+        : isProm
+            ? 'Prepare Sterile L&D Delivery Suite'
+            : _profile.isMaternal
+                ? 'Direct Obstetric Bay, Notify Attending Consultant'
+                : 'Direct-to-Bed Acute Resuscitation Bay';
+
+    final sbarNote = ClusterResolver.formatSbarNote(
+      clusterId: clusterId,
+      situation: situation,
+      background: background,
+      assessment: assessment,
+      recommendation: recommendation,
+    );
+
+    try {
+      final service = EmergencyService(
+        supabase: supabase,
+        geocoding: _geocoding,
+      );
+
+      final rpcResult = await service.createRequest(
+        latitude: fix.latitude,
+        longitude: fix.longitude,
+        address: _address.isNotEmpty ? _address : 'GPS: ${fix.latitude}, ${fix.longitude}',
+        emergencyType: finalType,
+        priority: priority, // SMALLINT 1
+        notes: sbarNote,
+        contactPhone: _profile.phone,
+        ageBand: _profile.isMaternal ? '18-39' : '18-39',
+      );
+
+      String? createdRequestId;
+      if (rpcResult is Map && rpcResult['id'] != null) {
+        createdRequestId = rpcResult['id'] as String;
+      }
+
+      if (!mounted) return;
+      setState(() => _submitting = false);
+
+      if (widget.onEmergencyCreated != null && createdRequestId != null) {
+        widget.onEmergencyCreated!(createdRequestId, _address, fix.latitude, fix.longitude);
+      }
+
+      await _checkActiveMission();
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _submitting = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Dispatch submission error: $e'),
           backgroundColor: Colors.redAccent,
         ),
       );
     }
   }
 
-  Future<void> _openSosDispatchSheet() async {
-    if (_fix == null || _submitting) return;
-
-    HapticFeedback.heavyImpact();
-
-    final intake = await showModalBottomSheet<_IntakeData>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) => _EmergencyConfirmSheet(
-        defaultPhone: _profilePhone,
-        defaultAgeBand: _profileAgeBand,
-        bloodGroup: _profileBloodGroup,
-        allergies: _profileAllergies,
-        conditions: _profileConditions,
-        currentAddress: _address,
-        latitude: _fix!.latitude,
-        longitude: _fix!.longitude,
-      ),
-    );
-
-    if (intake == null) return;
-    await _executeEmergencyRequest(_fix!, intake);
-  }
-
-  Future<void> _executeEmergencyRequest(LocationFix fix, _IntakeData intake) async {
-    setState(() => _submitting = true);
-    final supabase = Supabase.instance.client;
-
-    try {
-      String? createdRequestId;
-      final service = EmergencyService(
-        supabase: supabase,
-        geocoding: _geocoding,
-      );
-
-      final finalAddress = (intake.manualAddress != null && intake.manualAddress!.trim().isNotEmpty)
-          ? intake.manualAddress!.trim()
-          : (_address.isNotEmpty ? _address : 'GPS: ${fix.latitude}, ${fix.longitude}');
-
-      final notesList = <String>[];
-      if (intake.manualAddress != null && intake.manualAddress!.trim().isNotEmpty) {
-        notesList.add('📍 Landmark: ${intake.manualAddress!.trim()}');
-      }
-      if (intake.notes != null && intake.notes!.trim().isNotEmpty) {
-        notesList.add('Note: ${intake.notes!.trim()}');
-      }
-      if (_profileBloodGroup != null && _profileBloodGroup != 'Unknown') {
-        notesList.add('Blood: $_profileBloodGroup');
-      }
-      if (_profileAllergies != null && _profileAllergies!.trim().isNotEmpty) {
-        notesList.add('Allergies: $_profileAllergies');
-      }
-      if (_profileConditions != null && _profileConditions!.trim().isNotEmpty) {
-        notesList.add('Conditions: $_profileConditions');
-      }
-      if (intake.ageBand.isNotEmpty && intake.ageBand != 'unknown') {
-        notesList.add('Patient Age: ${intake.ageBand} yrs');
-      }
-
-      final assembledNotes = notesList.isNotEmpty ? notesList.join(' | ') : '';
-
-      final rpcResult = await service.createRequest(
-        latitude: fix.latitude,
-        longitude: fix.longitude,
-        address: finalAddress,
-        emergencyType: intake.condition,
-        ageBand: intake.ageBand,
-        contactPhone: intake.contactPhone ?? '',
-        notes: assembledNotes,
-        priority: intake.priority,
-      );
-
-      if (rpcResult is Map && rpcResult['id'] != null) {
-        createdRequestId = rpcResult['id'] as String;
-      }
-
-      if (!mounted) return;
-
-      setState(() => _submitting = false);
-
-      if (widget.onEmergencyCreated != null && createdRequestId != null) {
-        try {
-          (widget.onEmergencyCreated as dynamic)(createdRequestId, finalAddress, fix.latitude, fix.longitude);
-        } catch (_) {
-          (widget.onEmergencyCreated as dynamic)(createdRequestId, finalAddress);
-        }
-      } else {
-        Navigator.of(context).push(
-          MaterialPageRoute<void>(
-            builder: (_) => SubmittedScreen(
-              requestId: createdRequestId,
-              latitude: fix.latitude,
-              longitude: fix.longitude,
-              address: finalAddress,
-            ),
-          ),
-        );
-      }
-    } on EmergencyNetworkException {
-      if (!mounted) return;
-      setState(() {
-        _submitting = false;
-        
-      });
-      await _showOfflineFallbackSheet(fix, intake);
-    } catch (e) {
-      if (!mounted) return;
-      final msg = e.toString();
-      final looksNetwork = msg.contains('SocketException') ||
-          msg.contains('Failed host lookup') ||
-          msg.contains('Network') ||
-          msg.contains('timed out') ||
-          msg.contains('Timeout');
-      setState(() {
-        _submitting = false;
-        if (looksNetwork) {
-          
-        }
-      });
-      if (looksNetwork) {
-        await _showOfflineFallbackSheet(fix, intake);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(ErrorSanitizer.sanitize(e, fallback: 'Could not submit request. Please try again.')),
-            backgroundColor: Colors.redAccent,
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
-  }
-
-  Future<void> _showOfflineFallbackSheet(
-    LocationFix fix,
-    _IntakeData intake,
-  ) async {
-    if (!mounted) return;
-    await showModalBottomSheet<void>(
-      context: context,
-      isScrollControlled: true,
-      backgroundColor: Colors.transparent,
-      builder: (ctx) {
-        return Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF07193F),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-            border: Border(
-              top: BorderSide(color: Color(0xFF00D4FF), width: 1.5),
-            ),
-          ),
-          padding: const EdgeInsets.fromLTRB(20, 16, 20, 24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Center(
-                child: Container(
-                  width: 40,
-                  height: 4,
-                  decoration: BoxDecoration(
-                    color: Colors.white24,
-                    borderRadius: BorderRadius.circular(2),
-                  ),
-                ),
-              ),
-              const SizedBox(height: 16),
-              const Row(
-                children: [
-                  Icon(Icons.wifi_off_rounded, color: Colors.amber, size: 28),
-                  SizedBox(width: 12),
-                  Expanded(
-                    child: Text(
-                      'Dispatch Server Offline',
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-              const SizedBox(height: 10),
-              const Text(
-                'Data network is weak. Transmit via WhatsApp or SMS directly to Solace Central Operations Desk (+2348133355709).',
-                style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
-              ),
-              const SizedBox(height: 16),
-              FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFF25D366),
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  final body = EmergencySmsFallback.buildBody(
-                    emergencyType: intake.condition,
-                    latitude: fix.latitude,
-                    longitude: fix.longitude,
-                    address: _address,
-                    callerPhone: intake.contactPhone,
-                  );
-                  await EmergencySmsFallback.openWhatsApp(body: body);
-                },
-                icon: const Icon(Icons.chat_bubble_rounded),
-                label: const Text(
-                  'Send via WhatsApp (+2348133355709)',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-              const SizedBox(height: 10),
-              OutlinedButton.icon(
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF00D4FF),
-                  side: const BorderSide(color: Color(0xFF00D4FF)),
-                  padding: const EdgeInsets.symmetric(vertical: 13),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
-                onPressed: () async {
-                  Navigator.pop(ctx);
-                  final smsBody = EmergencySmsFallback.buildBody(
-                    emergencyType: intake.condition,
-                    latitude: fix.latitude,
-                    longitude: fix.longitude,
-                    address: _address,
-                    callerPhone: intake.contactPhone,
-                  );
-                  await EmergencySmsFallback.openNativeSms(body: smsBody);
-                },
-                icon: const Icon(Icons.sms_outlined),
-                label: const Text(
-                  'Transmit via SMS (+2348133355709)',
-                  style: TextStyle(fontWeight: FontWeight.bold),
-                ),
-              ),
-            ],
-          ),
-        );
-      },
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
-    if (_activeMission == null && _submitting) {
-      _submitting = false;
-    }
-    final hasActiveMission = _activeMission != null;
-    final accuracy = _fix?.accuracyMeters;
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardColor = isDark ? AppTheme.darkCard : Colors.white;
-    final cardBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFCBD5E1);
-    final textPrimary = isDark ? Colors.white : const Color(0xFF0F172A);
-    final textSecondary = isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7);
-    final textMuted = isDark ? Colors.white60 : const Color(0xFF64748B);
+    final hasActive = _activeMission != null;
+
+    if (hasActive) {
+      return _buildActiveMissionHUD(isDark);
+    }
 
     return Scaffold(
       backgroundColor: isDark ? AppTheme.darkBg : AppTheme.lightBg,
-      appBar: AppBar(
-        backgroundColor: cardColor,
-        elevation: isDark ? 0 : 0.5,
-        centerTitle: false,
-        leadingWidth: 44,
-        leading: Padding(
-          padding: const EdgeInsets.only(left: 12.0),
-          child: Image.asset(
-            'assets/images/solace_icon.png',
-            height: 28,
-            width: 28,
-            errorBuilder: (_, __, ___) => const Icon(
-              Icons.emergency_rounded,
-              color: Color(0xFF00D4FF),
-              size: 26,
-            ),
-          ),
-        ),
-        title: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              'SOLACE RAPID EMS',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: textPrimary,
-                fontWeight: FontWeight.w900,
-                fontSize: 15,
-                letterSpacing: 1.0,
-              ),
-            ),
-            Text(
-              '24/7 Emergency Network',
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: textSecondary,
-                fontSize: 9.5,
-                fontWeight: FontWeight.w500,
-              ),
-            ),
-          ],
-        ),
-        actions: [
-          // Medical ID / Blood Group Badge (Compact & No Overlap)
-          Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: ActionChip(
-              avatar: const Icon(
-                Icons.medical_information_rounded,
-                size: 14,
-                color: Color(0xFF00D4FF),
-              ),
-              label: Text(
-                _profileBloodGroup != null &&
-                        _profileBloodGroup != 'Unknown' &&
-                        _profileBloodGroup!.isNotEmpty
-                    ? '🩸 $_profileBloodGroup'
-                    : 'Medical ID',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: isDark ? Colors.white : const Color(0xFF0369A1),
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              backgroundColor: isDark ? const Color(0xFF0D2559) : const Color(0xFFE0F2FE),
-              side: BorderSide(color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7), width: 0.8),
-              padding: const EdgeInsets.symmetric(horizontal: 4),
-              onPressed: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const ProfileScreen(isStandalone: true)),
-                );
-                _fetchProfileDefaults();
-              },
-            ),
-          ),
-        ],
-      ),
-      body: Stack(
-        children: [
-          Column(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // 1. ACTIVE MISSION BANNER (If unit is already responding)
-              if (hasActiveMission)
-                InkWell(
-                  onTap: () {
-                    final reqId = _activeMission!['id'] as String;
-                    final addr = _activeMission!['patient_address'] as String?;
-                    if (widget.onEmergencyCreated != null) {
-                      widget.onEmergencyCreated!(reqId, addr ?? '');
-                    } else {
-                      Navigator.of(context).push(
-                        MaterialPageRoute<void>(
-                          builder: (_) => SubmittedScreen(
-                            requestId: reqId,
-                            address: addr,
-                          ),
-                        ),
-                      );
-                    }
-                  },
-                  child: Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        colors: [
-                          Colors.red.shade900,
-                          const Color(0xFF07193F),
-                        ],
-                      ),
-                      border: const Border(
-                        bottom: BorderSide(color: Color(0xFFFF334B), width: 1.5),
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        const Icon(Icons.sensors_rounded, color: Color(0xFF00D4FF), size: 20),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                '🚨 AMBULANCE EN ROUTE • ${_activeMission!['status']?.toString().toUpperCase()}',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Colors.white,
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w900,
-                                ),
-                              ),
-                              Text(
-                                'Unit: ${_activeMission!['drivers']?['vehicle_label'] ?? 'Assigned Medic'} • Tap to Track Live',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: const TextStyle(
-                                  color: Color(0xFF80D8FF),
-                                  fontSize: 10.5,
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                        const Icon(Icons.arrow_forward_ios_rounded, color: Colors.white70, size: 12),
-                      ],
-                    ),
-                  ),
-                ),
-
-              // 2. INTERACTIVE MAP SECTION
-              Expanded(
-                child: Stack(
-                  children: [
-                    MapboxMapView.patientLocation(
-                      latitude: _fix?.latitude ?? kDefaultCenter.latitude,
-                      longitude: _fix?.longitude ?? kDefaultCenter.longitude,
-                      zoom: 16.5,
-                      interactive: false,
-                      mapController: _mapController,
-                    ),
-
-                    // Live GPS Accuracy Tag (Top Left)
-                    Positioned(
-                      top: 12,
-                      left: 12,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF07193F).withValues(alpha: 0.92),
-                          borderRadius: BorderRadius.circular(16),
-                          border: Border.all(
-                            color: accuracy != null && accuracy <= 25
-                                ? const Color(0xFF00E676)
-                                : const Color(0xFF00D4FF),
-                            width: 1.1,
-                          ),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.3),
-                              blurRadius: 6,
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Icon(
-                              accuracy != null && accuracy <= 25
-                                  ? Icons.my_location_rounded
-                                  : Icons.gps_fixed_rounded,
-                              size: 13,
-                              color: accuracy != null && accuracy <= 25
-                                  ? const Color(0xFF00E676)
-                                  : const Color(0xFF00D4FF),
-                            ),
-                            const SizedBox(width: 5),
-                            Text(
-                              accuracy != null
-                                  ? 'GPS Locked ±${accuracy.round()}m'
-                                  : 'Acquiring GPS...',
-                              style: const TextStyle(
-                                color: Colors.white,
-                                fontSize: 10.5,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-
-                    // Recenter GPS Button (Top Right)
-                    Positioned(
-                      top: 12,
-                      right: 12,
-                      child: FloatingActionButton.small(
-                        heroTag: 'recenter_gps',
-                        backgroundColor: const Color(0xFF07193F),
-                        foregroundColor: const Color(0xFF00D4FF),
-                        elevation: 4,
-                        tooltip: 'Recenter GPS',
-                        onPressed: _loadLocation,
-                        child: _loadingLocation
-                            ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Color(0xFF00D4FF),
-                                ),
-                              )
-                            : const Icon(Icons.near_me_rounded, size: 19),
-                      ),
-                    ),
-
-                    // Address & Landmark Card over Map
-                    Positioned(
-                      bottom: 12,
-                      left: 12,
-                      right: 12,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFF07193F).withValues(alpha: 0.95),
-                          borderRadius: BorderRadius.circular(14),
-                          border: Border.all(color: const Color(0xFF1E3A8A), width: 1.2),
-                          boxShadow: [
-                            BoxShadow(
-                              color: Colors.black.withValues(alpha: 0.4),
-                              blurRadius: 8,
-                            ),
-                          ],
-                        ),
-                        child: Row(
-                          children: [
-                            const Icon(
-                              Icons.pin_drop_rounded,
-                              color: Color(0xFF00D4FF),
-                              size: 20,
-                            ),
-                            const SizedBox(width: 10),
-                            Expanded(
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Row(
-                                    children: const [
-                                      Text(
-                                        'PICKUP DESTINATION',
-                                        style: TextStyle(
-                                          color: Color(0xFF81D4FA),
-                                          fontSize: 9,
-                                          fontWeight: FontWeight.bold,
-                                          letterSpacing: 0.8,
-                                        ),
-                                      ),
-                                      Spacer(),
-                                      Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: const [
-                                          Icon(Icons.lock_rounded, size: 10, color: Color(0xFF00E676)),
-                                          SizedBox(width: 3),
-                                          Text(
-                                            'GPS Locked to Location',
-                                            style: TextStyle(
-                                              color: Color(0xFF00E676),
-                                              fontSize: 9,
-                                              fontWeight: FontWeight.w600,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ],
-                                  ),
-                                  const SizedBox(height: 2),
-                                  Text(
-                                    _address.isNotEmpty
-                                        ? _address
-                                        : 'Locating street address...',
-                                    maxLines: 1,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: const TextStyle(
-                                      color: Colors.white,
-                                      fontSize: 12,
-                                      fontWeight: FontWeight.w600,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-
-              // 3. TACTICAL 1-TAP EMERGENCY SOS CONSOLE (NO HORIZONTAL CHIPS!)
-              Container(
-                decoration: BoxDecoration(
-                  color: isDark ? AppTheme.darkBg : Colors.white,
-                  borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-                  boxShadow: [
-                    BoxShadow(
-                      color: Colors.black38,
-                      blurRadius: 10,
-                      offset: Offset(0, -3),
-                    ),
-                  ],
-                ),
-                padding: const EdgeInsets.fromLTRB(16, 14, 16, 18),
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    // Network & Dispatch Status
-                    Container(
-                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFF0D2559),
-                        borderRadius: BorderRadius.circular(12),
-                        border: Border.all(color: const Color(0xFF1E3A8A)),
-                      ),
-                      child: Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: const [
-                          Icon(Icons.shield_rounded, color: Color(0xFF00E676), size: 14),
-                          SizedBox(width: 6),
-                          Flexible(
-                            child: Text(
-                              'SOLACE RAPID RESPONSE • 24/7 EMS NETWORK ACTIVE',
-                              maxLines: 1,
-                              overflow: TextOverflow.ellipsis,
-                              style: TextStyle(
-                                color: Color(0xFFB0BEC5),
-                                fontSize: 9.5,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.5,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-
-                    const SizedBox(height: 14),
-
-                    // COMMANDING 1-TAP EMERGENCY SOS BUTTON
-                    SizedBox(
-                      height: 80,
-                      child: Stack(
-                        alignment: Alignment.center,
+              // Header
+              Row(
+                mainAxisAlignment: MainAxisAlignment.between,
+                children: [
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
                         children: [
-                          // Pulsing radar glow
-                          AnimatedBuilder(
-                            animation: _pulseController,
-                            builder: (context, child) {
-                              return Transform.scale(
-                                scale: _pulseScale.value,
-                                child: Container(
-                                  width: double.infinity,
-                                  height: 64,
-                                  decoration: BoxDecoration(
-                                    borderRadius: BorderRadius.circular(32),
-                                    color: const Color(0xFFFF334B).withValues(
-                                      alpha: _pulseOpacity.value,
-                                    ),
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
-
-                          // Main Action Button
-                          SizedBox(
-                            width: double.infinity,
-                            height: 64,
-                            child: ElevatedButton(
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFFD32F2F),
-                                foregroundColor: Colors.white,
-                                elevation: 8,
-                                shadowColor: const Color(0xFFFF334B).withValues(alpha: 0.6),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(32),
-                                  side: const BorderSide(
-                                    color: Color(0xFFFF8A80),
-                                    width: 2.0,
-                                  ),
-                                ),
-                              ),
-                              onPressed: _submitting ? null : _openSosDispatchSheet,
-                              child: _submitting
-                                  ? const SizedBox(
-                                      width: 26,
-                                      height: 26,
-                                      child: CircularProgressIndicator(
-                                        color: Colors.white,
-                                        strokeWidth: 3,
-                                      ),
-                                    )
-                                  : Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        const Icon(Icons.emergency_rounded, size: 28),
-                                        const SizedBox(width: 10),
-                                        Flexible(
-                                          child: Column(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            crossAxisAlignment: CrossAxisAlignment.start,
-                                            children: [
-                                              const Text(
-                                                'TAP FOR EMERGENCY SOS',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  fontSize: 15,
-                                                  fontWeight: FontWeight.w900,
-                                                  letterSpacing: 1.0,
-                                                ),
-                                              ),
-                                              Text(
-                                                'Instant Ambulance • Medic Crew • Hospital Bed',
-                                                maxLines: 1,
-                                                overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  color: Colors.white.withValues(alpha: 0.85),
-                                                  fontSize: 10,
-                                                  fontWeight: FontWeight.w500,
-                                                ),
-                                              ),
-                                            ],
-                                          ),
-                                        ),
-                                      ],
-                                    ),
+                          const Text('🚨 ', style: TextStyle(fontSize: 20)),
+                          Text(
+                            'Emergency SOS Engine',
+                            style: TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.w900,
+                              color: isDark ? Colors.white : const Color(0xFF0F172A),
+                              letterSpacing: -0.4,
                             ),
                           ),
                         ],
                       ),
-                    ),
-
-                    const SizedBox(height: 10),
-
-                    // Quick WhatsApp & SMS Fallback Bar (Clean High-Contrast Chips)
-                    Row(
-                      children: [
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? const Color(0xFF25D366).withValues(alpha: 0.12)
-                                  : const Color(0xFFDCFCE7),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: isDark
-                                    ? const Color(0xFF25D366).withValues(alpha: 0.3)
-                                    : const Color(0xFF86EFAC),
-                              ),
-                            ),
-                            child: TextButton.icon(
-                              style: TextButton.styleFrom(
-                                foregroundColor: isDark
-                                    ? const Color(0xFF25D366)
-                                    : const Color(0xFF15803D),
-                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                              ),
-                              onPressed: _sendWhatsAppSos,
-                              icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
-                              label: const Text(
-                                'WhatsApp (+2348133355709)',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ),
+                      const SizedBox(height: 2),
+                      Text(
+                        '1-tap verified GPS dispatch • Direct-to-Bed',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted,
                         ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Container(
-                            decoration: BoxDecoration(
-                              color: isDark
-                                  ? const Color(0xFF00D4FF).withValues(alpha: 0.12)
-                                  : const Color(0xFFE0F2FE),
-                              borderRadius: BorderRadius.circular(10),
-                              border: Border.all(
-                                color: isDark
-                                    ? const Color(0xFF00D4FF).withValues(alpha: 0.3)
-                                    : const Color(0xFF7DD3FC),
-                              ),
-                            ),
-                            child: TextButton.icon(
-                              style: TextButton.styleFrom(
-                                foregroundColor: isDark
-                                    ? const Color(0xFF00D4FF)
-                                    : const Color(0xFF0369A1),
-                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
-                              ),
-                              onPressed: _sendSmsSos,
-                              icon: const Icon(Icons.sms_rounded, size: 15),
-                              label: const Text(
-                                'SMS (+2348133355709)',
-                                maxLines: 1,
-                                overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
-                              ),
-                            ),
-                          ),
-                        ),
-                      ],
+                      ),
+                    ],
+                  ),
+                  // Care plan mode toggle
+                  ActionChip(
+                    avatar: Text(_showMaternalPasses ? '🌸' : '🛡️'),
+                    label: Text(
+                      _showMaternalPasses ? 'Maternal' : 'Standard',
+                      style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w700),
                     ),
-                  ],
-                ),
+                    onPressed: () {
+                      setState(() => _showMaternalPasses = !_showMaternalPasses);
+                    },
+                  ),
+                ],
               ),
+              const SizedBox(height: 18),
+
+              // GPS Accuracy Card
+              _buildGpsStatusPill(isDark),
+              const SizedBox(height: 24),
+
+              // ── HIGH-CONTRAST 1-TAP PULSING SOS BUTTON ───────────────────
+              _buildHighContrastSosButton(isDark),
+              const SizedBox(height: 28),
+
+              // ── ZERO-TYPING COMPLICATION FAST-PASS BUTTONS ───────────────
+              _buildZeroTypingFastPassSection(isDark),
+              const SizedBox(height: 24),
+
+              // 24/7 Telephone Hotline fallback
+              _buildHotlineFallback(isDark),
+              const SizedBox(height: 20),
             ],
           ),
-
-          // Submitting Overlay
-          if (_submitting)
-            Container(
-              color: Colors.black.withValues(alpha: 0.8),
-              child: Center(
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 26, vertical: 24),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFF07193F),
-                    borderRadius: BorderRadius.circular(20),
-                    border: Border.all(color: const Color(0xFF00D4FF), width: 1.5),
-                  ),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: const [
-                      SizedBox(
-                        width: 44,
-                        height: 44,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3.5,
-                          color: Color(0xFF00D4FF),
-                        ),
-                      ),
-                      SizedBox(height: 16),
-                      Text(
-                        'Dispatching Nearest Unit...',
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 15.5,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Broadcasting GPS coordinates to Solace response fleet',
-                        textAlign: TextAlign.center,
-                        style: TextStyle(
-                          color: Colors.white70,
-                          fontSize: 11.5,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-            ),
-        ],
-      ),
-    );
-  }
-}
-
-class _IntakeData {
-  final String condition;
-  final String ageBand;
-  final String? contactPhone;
-  final String? manualAddress;
-  final String? notes;
-  final int priority;
-
-  const _IntakeData({
-    required this.condition,
-    this.ageBand = 'unknown',
-    this.contactPhone,
-    this.manualAddress,
-    this.notes,
-    this.priority = 1,
-  });
-}
-
-class _EmergencyConfirmSheet extends StatefulWidget {
-  final String? defaultPhone;
-  final String? defaultAgeBand;
-  final String? bloodGroup;
-  final String? allergies;
-  final String? conditions;
-  final String currentAddress;
-  final double latitude;
-  final double longitude;
-
-  const _EmergencyConfirmSheet({
-    this.defaultPhone,
-    this.defaultAgeBand,
-    this.bloodGroup,
-    this.allergies,
-    this.conditions,
-    required this.currentAddress,
-    required this.latitude,
-    required this.longitude,
-  });
-
-  @override
-  State<_EmergencyConfirmSheet> createState() => _EmergencyConfirmSheetState();
-}
-
-class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
-  late final TextEditingController _phoneController;
-  final _landmarkController = TextEditingController();
-  final _notesController = TextEditingController();
-
-  String _selectedCondition = 'Accident';
-  String _selectedAgeBand = '18-39';
-  int _priority = 1;
-
-  static const List<Map<String, String>> _ageBandOptions = [
-    {'value': '0-1', 'label': '0-1 yr (Infant)'},
-    {'value': '2-12', 'label': '2-12 yrs (Child)'},
-    {'value': '13-17', 'label': '13-17 yrs (Teen)'},
-    {'value': '18-39', 'label': '18-39 yrs (Adult)'},
-    {'value': '40-64', 'label': '40-64 yrs (Mature)'},
-    {'value': '65+', 'label': '65+ yrs (Senior)'},
-  ];
-
-  static const List<Map<String, dynamic>> _quickConditions = [
-    {
-      'label': 'Accident',
-      'title': 'Road Accident',
-      'icon': Icons.car_crash_rounded,
-      'color': Color(0xFFFB8C00),
-      'priority': 1,
-    },
-    {
-      'label': 'Cardiac',
-      'title': 'Chest Pain / Heart',
-      'icon': Icons.favorite_rounded,
-      'color': Color(0xFFE53935),
-      'priority': 1,
-    },
-    {
-      'label': 'Trauma',
-      'title': 'Severe Bleeding',
-      'icon': Icons.healing_rounded,
-      'color': Color(0xFFD81B60),
-      'priority': 1,
-    },
-    {
-      'label': 'Respiratory',
-      'title': 'Breathing Distress',
-      'icon': Icons.air_rounded,
-      'color': Color(0xFF00ACC1),
-      'priority': 1,
-    },
-    {
-      'label': 'Stroke',
-      'title': 'Stroke / Collapse',
-      'icon': Icons.psychology_rounded,
-      'color': Color(0xFF8E24AA),
-      'priority': 1,
-    },
-    {
-      'label': 'Obstetric',
-      'title': 'Maternity / Labor',
-      'icon': Icons.pregnant_woman_rounded,
-      'color': Color(0xFFEC407A),
-      'priority': 2,
-    },
-    {
-      'label': 'Allergy',
-      'title': 'Severe Allergy',
-      'icon': Icons.vaccines_rounded,
-      'color': Color(0xFFFFB300),
-      'priority': 1,
-    },
-    {
-      'label': 'Other',
-      'title': 'General Emergency',
-      'icon': Icons.medical_services_rounded,
-      'color': Color(0xFF1E88E5),
-      'priority': 2,
-    },
-  ];
-
-  @override
-  void initState() {
-    super.initState();
-    _phoneController = TextEditingController(text: widget.defaultPhone ?? '');
-    if (widget.defaultAgeBand != null && widget.defaultAgeBand!.trim().isNotEmpty) {
-      _selectedAgeBand = widget.defaultAgeBand!.trim();
-    }
-  }
-
-  @override
-  void dispose() {
-    _phoneController.dispose();
-    _landmarkController.dispose();
-    _notesController.dispose();
-    super.dispose();
-  }
-
-  void _confirm() {
-    HapticFeedback.heavyImpact();
-    Navigator.of(context).pop(
-      _IntakeData(
-        condition: _selectedCondition,
-        ageBand: _selectedAgeBand,
-        contactPhone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
-        manualAddress: _landmarkController.text.trim().isNotEmpty ? _landmarkController.text.trim() : null,
-        notes: _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null,
-        priority: _priority,
-      ),
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bottomInset = MediaQuery.of(context).viewInsets.bottom;
-
-    return Container(
-      decoration: const BoxDecoration(
-        color: Color(0xFF07193F),
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-        border: Border(
-          top: BorderSide(color: Color(0xFF00D4FF), width: 1.5),
         ),
       ),
-      padding: EdgeInsets.fromLTRB(18, 14, 18, 18 + bottomInset),
-      child: SingleChildScrollView(
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Center(
-              child: Container(
-                width: 44,
-                height: 4.5,
-                decoration: BoxDecoration(
-                  color: Colors.white30,
-                  borderRadius: BorderRadius.circular(2.5),
-                ),
-              ),
-            ),
-            const SizedBox(height: 14),
+    );
+  }
 
-            // Header
-            Row(
+  Widget _buildGpsStatusPill(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark ? AppTheme.darkCard : Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? AppTheme.darkCardBorder : const Color(0xFFE2E8F0),
+        ),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.location_on_rounded, color: Color(0xFF00E676), size: 20),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: BoxDecoration(
-                    color: Colors.red.shade900.withValues(alpha: 0.5),
-                    shape: BoxShape.circle,
+                const Text(
+                  'GPS LOCK ACTIVE (High Accuracy)',
+                  style: TextStyle(
+                    fontSize: 10,
+                    fontWeight: FontWeight.w900,
+                    color: Color(0xFF00E676),
+                    letterSpacing: 0.5,
                   ),
-                  child: const Icon(Icons.emergency_rounded, color: Colors.redAccent, size: 24),
                 ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
-                      Text(
-                        'Instant Emergency Dispatch',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: Colors.white,
-                          fontSize: 16,
-                          fontWeight: FontWeight.w900,
-                        ),
-                      ),
-                      Text(
-                        'Select condition & confirm pickup landmark for crew',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.white60, fontSize: 11),
-                      ),
-                    ],
+                Text(
+                  _loadingLocation
+                    ? 'Locking satellite coordinates...'
+                    : _address.isNotEmpty
+                        ? _address
+                        : (_fix != null ? '${_fix!.latitude}, ${_fix!.longitude}' : 'Location ready'),
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
                   ),
                 ),
               ],
             ),
-            const SizedBox(height: 14),
+          ),
+          IconButton(
+            onPressed: _loadLocation,
+            icon: const Icon(Icons.refresh_rounded, size: 18),
+            tooltip: 'Re-calibrate GPS',
+          ),
+        ],
+      ),
+    );
+  }
 
-            // Verified Address Summary
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+  Widget _buildHighContrastSosButton(bool isDark) {
+    return Center(
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          // Animated Pulse ring
+          AnimatedBuilder(
+            animation: _pulseScale,
+            builder: (context, child) {
+              return Transform.scale(
+                scale: _pulseScale.value,
+                child: Container(
+                  width: 220,
+                  height: 220,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: const Color(0xFFFF1744).withValues(alpha: _pulseOpacity.value),
+                  ),
+                ),
+              );
+            },
+          ),
+          // Main Button
+          GestureDetector(
+            onTap: _submitting ? null : () => _executeEmergencyDispatch(),
+            child: Container(
+              width: 180,
+              height: 180,
               decoration: BoxDecoration(
-                color: const Color(0xFF0D2559),
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: const Color(0xFF1E3A8A)),
+                shape: BoxShape.circle,
+                gradient: const LinearGradient(
+                  colors: [Color(0xFFFF1744), Color(0xFFD50000)],
+                  begin: Alignment.topLeft,
+                  end: Alignment.bottomRight,
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xFFFF1744).withValues(alpha: 0.45),
+                    blurRadius: 28,
+                    offset: const Offset(0, 8),
+                  ),
+                ],
+                border: Border.all(color: Colors.white, width: 3.5),
               ),
-              child: Row(
-                children: [
-                  const Icon(Icons.location_on_rounded, color: Color(0xFF00D4FF), size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      widget.currentAddress.isNotEmpty
-                          ? widget.currentAddress
-                          : 'GPS Locked: ${widget.latitude.toStringAsFixed(4)}, ${widget.longitude.toStringAsFixed(4)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
+              child: Center(
+                child: _submitting
+                    ? const CircularProgressIndicator(color: Colors.white)
+                    : Column(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          const Icon(Icons.shield_rounded, color: Colors.white, size: 52),
+                          const SizedBox(height: 6),
+                          Text(
+                            _profile.isMaternal ? 'MATERNAL SOS' : 'TAP FOR SOS',
+                            style: const TextStyle(
+                              color: Colors.white,
+                              fontSize: 16,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.8,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          const Text(
+                            'Under 1s Dispatch',
+                            style: TextStyle(
+                              color: Colors.white70,
+                              fontSize: 10,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
                       ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildZeroTypingFastPassSection(bool isDark) {
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.between,
+          children: [
+            Text(
+              _showMaternalPasses
+                  ? '⚡ Obstetric Complication Fast-Passes'
+                  : '⚡ Standard Emergency Fast-Passes',
+              style: TextStyle(
+                fontSize: 14,
+                fontWeight: FontWeight.w800,
+                color: textColor,
+              ),
+            ),
+            const Text(
+              'Zero-typing',
+              style: TextStyle(fontSize: 11, color: Colors.grey, fontWeight: FontWeight.w600),
+            ),
+          ],
+        ),
+        const SizedBox(height: 12),
+
+        if (_showMaternalPasses) ...[
+          // Obstetric Fast-Passes
+          _buildFastPassTile(
+            title: 'Vaginal Bleeding (Antepartum Hemorrhage)',
+            subtitle: 'Triggers Hemorrhage & O-Neg Blood Bank Pre-Alert',
+            icon: '🩸',
+            accentColor: const Color(0xFFDC2626),
+            isDark: isDark,
+            onTap: () => _executeEmergencyDispatch(condition: 'Vaginal Bleeding - Hemorrhage Risk', priority: 1),
+          ),
+          const SizedBox(height: 10),
+          _buildFastPassTile(
+            title: 'Water Broke (PROM)',
+            subtitle: 'Triggers Amniotic Fluid / Infection Delivery Pre-Alert',
+            icon: '💧',
+            accentColor: const Color(0xFF0284C7),
+            isDark: isDark,
+            onTap: () => _executeEmergencyDispatch(condition: 'Water Broke (PROM)', priority: 1),
+          ),
+          const SizedBox(height: 10),
+          _buildFastPassTile(
+            title: 'Acute Labor Pain (Contractions < 3 min)',
+            subtitle: 'Pre-alerts Obstetric Bay for Impending Delivery',
+            icon: '👶',
+            accentColor: const Color(0xFFEC4899),
+            isDark: isDark,
+            onTap: () => _executeEmergencyDispatch(condition: 'Acute Labor Pain', priority: 1),
+          ),
+          const SizedBox(height: 10),
+          _buildFastPassTile(
+            title: 'Severe Headache / Blurred Vision',
+            subtitle: 'Pre-eclampsia & Magnesium Sulfate Pre-Alert',
+            icon: '⚡',
+            accentColor: const Color(0xFFD97706),
+            isDark: isDark,
+            onTap: () => _executeEmergencyDispatch(condition: 'Severe Headache / Blurred Vision (Pre-eclampsia)', priority: 1),
+          ),
+        ] else ...[
+          // Standard Fast-Passes
+          _buildFastPassTile(
+            title: 'Severe Trauma / RTC',
+            subtitle: 'Direct Trauma Red Bay & Ortho/Surgical Alert',
+            icon: '🚑',
+            accentColor: const Color(0xFFDC2626),
+            isDark: isDark,
+            onTap: () => _executeEmergencyDispatch(condition: 'Severe Trauma / RTC', priority: 1),
+          ),
+          const SizedBox(height: 10),
+          _buildFastPassTile(
+            title: 'Crushing Chest Pain / STEMI',
+            subtitle: '12-lead ECG & Cath Lab Acute Cardiac Bay Alert',
+            icon: '🫀',
+            accentColor: const Color(0xFFBE123C),
+            isDark: isDark,
+            onTap: () => _executeEmergencyDispatch(condition: 'Chest Pain / STEMI', priority: 1),
+          ),
+          const SizedBox(height: 10),
+          _buildFastPassTile(
+            title: 'Acute Breathlessness / Severe Asthma',
+            subtitle: 'Continuous Nebulizer & Oxygen Bay Direct Transfer',
+            icon: '🫁',
+            accentColor: const Color(0xFF0284C7),
+            isDark: isDark,
+            onTap: () => _executeEmergencyDispatch(condition: 'Acute Breathlessness / Asthma', priority: 1),
+          ),
+          const SizedBox(height: 10),
+          _buildFastPassTile(
+            title: 'Sudden Collapse / Unresponsive',
+            subtitle: 'Immediate ICU Team & Resuscitation Suite Pre-Alert',
+            icon: '🚨',
+            accentColor: const Color(0xFF7C3AED),
+            isDark: isDark,
+            onTap: () => _executeEmergencyDispatch(condition: 'Collapse / Unresponsive', priority: 1),
+          ),
+        ],
+      ],
+    );
+  }
+
+  Widget _buildFastPassTile({
+    required String title,
+    required String subtitle,
+    required String icon,
+    required Color accentColor,
+    required bool isDark,
+    required VoidCallback onTap,
+  }) {
+    final cardBg = isDark ? AppTheme.darkCard : Colors.white;
+    final cardBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFE2E8F0);
+
+    return InkWell(
+      onTap: _submitting ? null : onTap,
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: cardBorder),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withValues(alpha: 0.03),
+              blurRadius: 8,
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Text(icon, style: const TextStyle(fontSize: 24)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    subtitle,
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted,
                     ),
                   ),
                 ],
               ),
             ),
-            const SizedBox(height: 14),
-
-            // Emergency Types: Balanced 2-Column Grid (All visible at once!)
-            const Text(
-              'SELECT EMERGENCY CONDITION',
-              style: TextStyle(
-                color: Colors.white70,
-                fontSize: 10,
-                fontWeight: FontWeight.bold,
-                letterSpacing: 0.8,
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+              decoration: BoxDecoration(
+                color: accentColor.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(8),
               ),
-            ),
-            const SizedBox(height: 8),
-
-            GridView.builder(
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 2,
-                childAspectRatio: 3.2,
-                crossAxisSpacing: 8,
-                mainAxisSpacing: 8,
-              ),
-              itemCount: _quickConditions.length,
-              itemBuilder: (ctx, idx) {
-                final c = _quickConditions[idx];
-                final label = c['label'] as String;
-                final title = c['title'] as String;
-                final isSel = label == _selectedCondition;
-                final color = c['color'] as Color;
-
-                return InkWell(
-                  onTap: () {
-                    HapticFeedback.selectionClick();
-                    setState(() {
-                      _selectedCondition = label;
-                      _priority = c['priority'] as int;
-                    });
-                  },
-                  borderRadius: BorderRadius.circular(10),
-                  child: AnimatedContainer(
-                    duration: const Duration(milliseconds: 150),
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
-                    decoration: BoxDecoration(
-                      color: isSel ? color.withValues(alpha: 0.25) : const Color(0xFF0D2559),
-                      borderRadius: BorderRadius.circular(10),
-                      border: Border.all(
-                        color: isSel ? color : Colors.white12,
-                        width: isSel ? 1.6 : 1.0,
-                      ),
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          c['icon'] as IconData,
-                          size: 18,
-                          color: isSel ? Colors.white : color,
-                        ),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: TextStyle(
-                              color: isSel ? Colors.white : Colors.white70,
-                              fontSize: 11,
-                              fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                );
-              },
-            ),
-
-            const SizedBox(height: 14),
-
-            // Patient Age Selection
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'PATIENT AGE CATEGORY',
-                  style: TextStyle(
-                    color: Colors.white70,
-                    fontSize: 10,
-                    fontWeight: FontWeight.bold,
-                    letterSpacing: 0.8,
-                  ),
-                ),
-                Text(
-                  _selectedAgeBand == 'unknown' ? 'Not specified' : '$_selectedAgeBand yrs',
-                  style: const TextStyle(
-                    color: Color(0xFF00D4FF),
-                    fontSize: 10.5,
-                    fontWeight: FontWeight.bold,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: Row(
-                children: _ageBandOptions.map((opt) {
-                  final val = opt['value']!;
-                  final lbl = opt['label']!;
-                  final isSel = _selectedAgeBand == val;
-                  return Padding(
-                    padding: const EdgeInsets.only(right: 8),
-                    child: InkWell(
-                      onTap: () {
-                        HapticFeedback.selectionClick();
-                        setState(() => _selectedAgeBand = val);
-                      },
-                      borderRadius: BorderRadius.circular(10),
-                      child: AnimatedContainer(
-                        duration: const Duration(milliseconds: 150),
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-                        decoration: BoxDecoration(
-                          color: isSel
-                              ? const Color(0xFF00D4FF).withValues(alpha: 0.25)
-                              : const Color(0xFF0D2559),
-                          borderRadius: BorderRadius.circular(10),
-                          border: Border.all(
-                            color: isSel ? const Color(0xFF00D4FF) : Colors.white12,
-                            width: isSel ? 1.5 : 1.0,
-                          ),
-                        ),
-                        child: Text(
-                          lbl,
-                          style: TextStyle(
-                            color: isSel ? Colors.white : Colors.white70,
-                            fontSize: 11,
-                            fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
-                          ),
-                        ),
-                      ),
-                    ),
-                  );
-                }).toList(),
-              ),
-            ),
-
-            const SizedBox(height: 14),
-
-            // Landmark Field
-            TextField(
-              controller: _landmarkController,
-              style: const TextStyle(color: Colors.white, fontSize: 12.5),
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: const Color(0xFF0D2559),
-                labelText: 'Landmark, Estate Gate, Compound or Junction',
-                labelStyle: const TextStyle(color: Colors.white60, fontSize: 11.5),
-                hintText: 'e.g. Near Total filling station, blue gate opposite pharmacy',
-                hintStyle: const TextStyle(color: Colors.white24, fontSize: 11),
-                prefixIcon: const Icon(Icons.place_outlined, color: Color(0xFF00D4FF), size: 18),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // Callback Phone Field
-            TextField(
-              controller: _phoneController,
-              keyboardType: TextInputType.phone,
-              style: const TextStyle(color: Colors.white, fontSize: 12.5),
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: const Color(0xFF0D2559),
-                labelText: 'Callback Phone Number (for Driver & Dispatcher)',
-                labelStyle: const TextStyle(color: Colors.white60, fontSize: 11.5),
-                hintText: 'e.g. 0803 123 4567',
-                hintStyle: const TextStyle(color: Colors.white24, fontSize: 11),
-                prefixIcon: const Icon(Icons.phone_outlined, color: Color(0xFF00D4FF), size: 18),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-            const SizedBox(height: 10),
-
-            // Brief Notes Field
-            TextField(
-              controller: _notesController,
-              style: const TextStyle(color: Colors.white, fontSize: 12.5),
-              maxLines: 2,
-              decoration: InputDecoration(
-                filled: true,
-                fillColor: const Color(0xFF0D2559),
-                labelText: 'Patient condition / Access note (Optional)',
-                labelStyle: const TextStyle(color: Colors.white60, fontSize: 11.5),
-                hintText: 'e.g. Patient unconscious / gate security informed',
-                hintStyle: const TextStyle(color: Colors.white24, fontSize: 11),
-                prefixIcon: const Icon(Icons.notes_rounded, color: Color(0xFF00D4FF), size: 18),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(12),
-                  borderSide: BorderSide.none,
-                ),
-              ),
-            ),
-
-            if (widget.bloodGroup != null && widget.bloodGroup != 'Unknown') ...[
-              const SizedBox(height: 10),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade900.withValues(alpha: 0.25),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: Colors.red.shade400.withValues(alpha: 0.4)),
-                ),
-                child: Row(
-                  children: [
-                    const Icon(Icons.shield_outlined, color: Colors.redAccent, size: 15),
-                    const SizedBox(width: 8),
-                    Expanded(
-                      child: Text(
-                        'Attached from Medical ID: Blood Group ${widget.bloodGroup!}',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(color: Colors.white70, fontSize: 11),
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ],
-
-            const SizedBox(height: 16),
-
-            // Confirm & Dispatch Action Button
-            SizedBox(
-              height: 52,
-              child: FilledButton.icon(
-                style: FilledButton.styleFrom(
-                  backgroundColor: const Color(0xFFD32F2F),
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(14),
-                    side: const BorderSide(color: Color(0xFFFF5252), width: 1.5),
-                  ),
-                ),
-                onPressed: _confirm,
-                icon: const Icon(Icons.emergency_rounded, size: 22),
-                label: const Text(
-                  'CONFIRM & DISPATCH AMBULANCE NOW',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8,
-                  ),
+              child: Text(
+                'DISPATCH',
+                style: TextStyle(
+                  color: accentColor,
+                  fontSize: 10,
+                  fontWeight: FontWeight.w900,
                 ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+
+  Widget _buildHotlineFallback(bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.between,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.phone_in_talk_rounded, color: Color(0xFF0284C7), size: 22),
+              const SizedBox(width: 10),
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    '24/7 Telephone Hotline Fallback',
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                  const Text(
+                    'Direct line to Solace Medical Dispatch Desk',
+                    style: TextStyle(fontSize: 10.5, color: Colors.grey),
+                  ),
+                ],
+              ),
+            ],
+          ),
+          FilledButton(
+            onPressed: () {
+              launchUrl(Uri.parse('tel:+2348006963674'));
+            },
+            style: FilledButton.styleFrom(
+              backgroundColor: const Color(0xFF0284C7),
+              padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+              minimumSize: Size.zero,
+            ),
+            child: const Text('CALL NOW', style: TextStyle(fontSize: 11, fontWeight: FontWeight.w800)),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── LIVE EN-ROUTE EMERGENCY HUD (POST-TRIGGER VIEW) ─────────────────────────
+  Widget _buildActiveMissionHUD(bool isDark) {
+    final mission = _activeMission!;
+    final reqId = mission['id']?.toString() ?? '';
+    final status = mission['status']?.toString() ?? 'Active';
+    final hospital = mission['hospital']?['name']?.toString() ?? 'Partner Emergency Facility';
+    final driver = mission['drivers']?['display_name']?.toString() ?? 'ALS Paramedic Crew';
+    final vehicle = mission['drivers']?['vehicle_label']?.toString() ?? '';
+
+    return Scaffold(
+      backgroundColor: isDark ? AppTheme.darkBg : AppTheme.lightBg,
+      body: SafeArea(
+        child: SingleChildScrollView(
+          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 16),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              // HUD Header
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  gradient: const LinearGradient(
+                    colors: [Color(0xFF991B1B), Color(0xFFDC2626)],
+                  ),
+                  borderRadius: BorderRadius.circular(20),
+                  boxShadow: [
+                    BoxShadow(
+                      color: const Color(0xFFDC2626).withValues(alpha: 0.3),
+                      blurRadius: 16,
+                      offset: const Offset(0, 4),
+                    ),
+                  ],
+                ),
+                child: Row(
+                  children: [
+                    const Text('🚨', style: TextStyle(fontSize: 32)),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Text(
+                            'LIVE EMERGENCY MISSION ACTIVE',
+                            style: TextStyle(
+                              color: Colors.white,
+                              fontSize: 14,
+                              fontWeight: FontWeight.w900,
+                              letterSpacing: 0.5,
+                            ),
+                          ),
+                          Text(
+                            'Status: $status',
+                            style: const TextStyle(
+                              color: Colors.white70,
+                              fontSize: 12,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // ── 4-STAGE STATUS HUD PROGRESSION ───────────────────────────
+              Container(
+                padding: const EdgeInsets.all(16),
+                decoration: BoxDecoration(
+                  color: isDark ? AppTheme.darkCard : Colors.white,
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(
+                    color: isDark ? AppTheme.darkCardBorder : const Color(0xFFE2E8F0),
+                  ),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Direct-to-Bed Mission Progression',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w800,
+                        color: isDark ? Colors.white : const Color(0xFF0F172A),
+                      ),
+                    ),
+                    const SizedBox(height: 14),
+
+                    // Stage 1
+                    _buildHudStageItem(
+                      stepNumber: '1',
+                      title: 'Signal Logged & GPS Locked',
+                      subtitle: 'Coordinates validated with nearest cluster hub.',
+                      isCompleted: true,
+                      isDark: isDark,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Stage 2
+                    _buildHudStageItem(
+                      stepNumber: '2',
+                      title: 'Receiving Hospital Pre-Alerted',
+                      subtitle: 'Direct digital SBAR pre-alert sent to $hospital.',
+                      isCompleted: true,
+                      isDark: isDark,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Stage 3
+                    _buildHudStageItem(
+                      stepNumber: '3',
+                      title: 'ALS Ambulance Unit En Route',
+                      subtitle: '$driver ${vehicle.isNotEmpty ? "($vehicle)" : ""} mobilized.',
+                      isCompleted: status.toLowerCase().contains('driver') ||
+                          status.toLowerCase().contains('en route') ||
+                          status.toLowerCase().contains('arrived'),
+                      isDark: isDark,
+                    ),
+                    const SizedBox(height: 12),
+
+                    // Stage 4
+                    _buildHudStageItem(
+                      stepNumber: '4',
+                      title: 'Direct-to-Bed VIP Intake',
+                      subtitle: 'Bypass general lobby upon arrival. Direct to Resuscitation Bay.',
+                      isCompleted: status.toLowerCase().contains('intake') ||
+                          status.toLowerCase().contains('completed'),
+                      isDark: isDark,
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 18),
+
+              // Tactical Live Map Button
+              FilledButton.icon(
+                onPressed: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute<void>(
+                      builder: (_) => SubmittedScreen(
+                        requestId: reqId,
+                        latitude: (mission['patient_lat'] as num?)?.toDouble(),
+                        longitude: (mission['patient_lng'] as num?)?.toDouble(),
+                        address: mission['patient_address']?.toString(),
+                      ),
+                    ),
+                  );
+                },
+                icon: const Icon(Icons.radar_rounded),
+                label: const Text(
+                  'OPEN LIVE TACTICAL TRACKER & MAP',
+                  style: TextStyle(fontWeight: FontWeight.w900),
+                ),
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0284C7),
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+              ),
+              const SizedBox(height: 14),
+
+              // Telephone Hotline & Stand Down Buttons
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () => launchUrl(Uri.parse('tel:+2348006963674')),
+                      icon: const Icon(Icons.phone),
+                      label: const Text('24/7 Hotline'),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: () {
+                        // Open SubmittedScreen to trigger cancellation with reason modal
+                        Navigator.of(context).push(
+                          MaterialPageRoute<void>(
+                            builder: (_) => SubmittedScreen(
+                              requestId: reqId,
+                              latitude: (mission['patient_lat'] as num?)?.toDouble(),
+                              longitude: (mission['patient_lng'] as num?)?.toDouble(),
+                              address: mission['patient_address']?.toString(),
+                            ),
+                          ),
+                        );
+                      },
+                      icon: const Icon(Icons.cancel_outlined, color: Colors.redAccent),
+                      label: const Text('Stand Down', style: TextStyle(color: Colors.redAccent)),
+                      style: OutlinedButton.styleFrom(
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        side: const BorderSide(color: Colors.redAccent),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 24),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildHudStageItem({
+    required String stepNumber,
+    required String title,
+    required String subtitle,
+    required bool isCompleted,
+    required bool isDark,
+  }) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 26,
+          height: 26,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: isCompleted ? const Color(0xFF00E676) : Colors.grey.withValues(alpha: 0.3),
+          ),
+          child: Center(
+            child: isCompleted
+                ? const Icon(Icons.check, size: 16, color: Colors.black)
+                : Text(
+                    stepNumber,
+                    style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 11, color: Colors.white),
+                  ),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w800,
+                  color: isCompleted
+                      ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                      : Colors.grey,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                subtitle,
+                style: TextStyle(
+                  fontSize: 11,
+                  color: isDark ? AppTheme.darkTextMuted : AppTheme.lightTextMuted,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
