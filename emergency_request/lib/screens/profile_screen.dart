@@ -56,7 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'AB+',
     'AB-',
     'O+',
-    'O- (Rare Blood Shield)',
+    'O- (Rare Rh-Negative Reserve)',
   ];
 
   static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];
@@ -148,7 +148,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           final bg = res['blood_group']?.toString();
           if (bg != null) {
             if (bg.contains('O-')) {
-              _selectedBloodGroup = 'O- (Rare Blood Shield)';
+              _selectedBloodGroup = 'O- (Rare Rh-Negative Reserve)';
             } else if (_bloodGroups.contains(bg)) {
               _selectedBloodGroup = bg;
             }
@@ -250,7 +250,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Medical ID & Hospital Shield saved successfully!'),
+          content: Text('Medical ID & Clinical Care Plan saved successfully!'),
           backgroundColor: Color(0xFF00E676),
           behavior: SnackBarBehavior.floating,
         ),
@@ -348,7 +348,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     return Scaffold(
       backgroundColor: isDark ? AppTheme.darkBg : AppTheme.lightBg,
       appBar: AppBar(
-        title: const Text('Medical ID & Hospital Shield', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
+        title: const Text('Medical ID & Clinical Care Plan', style: TextStyle(fontWeight: FontWeight.w800, fontSize: 17)),
         backgroundColor: isDark ? AppTheme.darkCard : Colors.white,
         elevation: 0,
         actions: [
@@ -393,7 +393,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             Row(
                               children: [
                                 Text(
-                                  'Standard Emergency Shield',
+                                  'Standard Emergency Plan',
                                   style: TextStyle(
                                     fontSize: 14,
                                     fontWeight: FontWeight.w800,
@@ -473,7 +473,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              'Active Subscription • Priority L&D Direct Admission & Blood Shield',
+                              'Active Subscription • Priority L&D Direct Admission & Blood Reserve',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
@@ -640,7 +640,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Clinical Baseline & Blood Shield',
+                      'Clinical Baseline & Blood Reserve',
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: textColor),
                     ),
                     const SizedBox(height: 12),
@@ -767,7 +767,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
                       )
                     : const Text(
-                        'Save Medical ID & Hospital Shield',
+                        'Save Medical ID & Care Plan',
                         style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900),
                       ),
               ),
