@@ -1,4 +1,5 @@
-﻿import 'package:flutter/material.dart';
+import 'dart:async';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/member_profile.dart';
@@ -35,7 +36,9 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
   final MaternalCareService _maternalService = MaternalCareService();
   final MaternalContentService _contentService = MaternalContentService();
   int _selectedDayIndex = 3; // Index in the 7-day strip (middle = Today)
-  int _unreadAlertCount = 2; // Unread notification badge counter
+  int _unreadAlertCount = 3; // Unread notification badge counter for daily 8:00 AM content drop
+  String? _lastAcknowledgedCycleKey; // Tracks acknowledged 8:00 AM cycle
+  Timer? _cycleRefreshTimer; // Automated timer scheduling 8:00 AM daily refresh
   List<MaternalContentItem> _dailyGuidanceCards = [];
   bool _loadingGuidance = true;
 
@@ -44,6 +47,14 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     super.initState();
     _maternalService.addListener(_onServiceUpdate);
     _loadDailyGuidance();
+    _scheduleNext8amRefreshTimer();
+  }
+
+  @override
+  void dispose() {
+    _cycleRefreshTimer?.cancel();
+    _maternalService.removeListener(_onServiceUpdate);
+    super.dispose();
   }
 
   @override
@@ -56,7 +67,26 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     }
   }
 
+  /// Automatically schedules a refresh at 8:00 AM sharp the next day
+  void _scheduleNext8amRefreshTimer() {
+    _cycleRefreshTimer?.cancel();
+    final next8am = MaternalContentService.getNextClinicalCycleRefresh();
+    final diff = next8am.difference(DateTime.now());
+    final waitDuration = diff.isNegative
+        ? const Duration(seconds: 1)
+        : diff + const Duration(seconds: 1);
+
+    _cycleRefreshTimer = Timer(waitDuration, () {
+      if (mounted) {
+        _loadDailyGuidance();
+        _scheduleNext8amRefreshTimer();
+      }
+    });
+  }
+
+  /// Fetches the daily maternal guidance aligned to the active 8:00 AM drop
   Future<void> _loadDailyGuidance() async {
+    final currentCycleKey = MaternalContentService.getClinicalCycleKey();
     final cards = await _contentService.getDailyGuidanceCards(
       gestationalWeek: widget.profile.computedWeeks,
     );
@@ -64,14 +94,20 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
       setState(() {
         _dailyGuidanceCards = cards;
         _loadingGuidance = false;
+        // If a new 8:00 AM cycle has dropped that hasn't been acknowledged, activate notification count
+        if (_lastAcknowledgedCycleKey != currentCycleKey) {
+          _unreadAlertCount = cards.isNotEmpty ? cards.length : 3;
+        }
       });
     }
   }
 
-  @override
-  void dispose() {
-    _maternalService.removeListener(_onServiceUpdate);
-    super.dispose();
+  void _markAlertsAsAcknowledged() {
+    final currentCycleKey = MaternalContentService.getClinicalCycleKey();
+    setState(() {
+      _lastAcknowledgedCycleKey = currentCycleKey;
+      _unreadAlertCount = 0;
+    });
   }
 
   void _onServiceUpdate() {
@@ -149,8 +185,8 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 _buildDailyInsightsSection(isDark),
                 const SizedBox(height: 20),
 
-                // ── 5. Maternal Pre-written Daily Clinical Library Stack ──────
-                _buildMaternalGuidanceLibrarySection(isDark),
+                // ── 5. Care Alerts & Notifications Section (Refreshes Daily at 8:00 AM) ──
+                _buildCareAlertsAndNotificationsSection(isDark),
                 const SizedBox(height: 20),
 
                 // ── 6. Dedicated Obstetric Emergency 1-Tap SOS Shield ────────
@@ -1206,11 +1242,12 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── 2. Notification Bell: Maternal Care Notifications Center ───────────────
+  // ── 2. Notification Bell: Maternal Care Notifications Center ─────────────
   void _showNotificationsSheet(BuildContext context, bool isDark) {
     HapticFeedback.mediumImpact();
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
     final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final nextRefreshDisplay = MaternalContentService.getNextRefreshDisplay();
 
     showModalBottomSheet(
       context: context,
@@ -1228,7 +1265,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
                 border: Border(
                   top: BorderSide(
-                    color: const Color(0xFFFF8A65).withOpacity(0.5),
+                    color: const Color(0xFFFF8A65).withValues(alpha: 0.5),
                     width: 1.5,
                   ),
                 ),
@@ -1259,7 +1296,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                           Container(
                             padding: const EdgeInsets.all(7),
                             decoration: BoxDecoration(
-                              color: const Color(0xFFFF8A65).withOpacity(0.15),
+                              color: const Color(0xFFFF8A65).withValues(alpha: 0.15),
                               shape: BoxShape.circle,
                             ),
                             child: const Icon(
@@ -1282,10 +1319,11 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                               ),
                               Text(
                                 _unreadAlertCount > 0
-                                    ? '$_unreadAlertCount active alerts requiring attention'
-                                    : 'All clinical alerts acknowledged',
+                                    ? '$_unreadAlertCount new daily alerts • $nextRefreshDisplay'
+                                    : 'All alerts acknowledged • $nextRefreshDisplay',
                                 style: TextStyle(
                                   fontSize: 11,
+                                  fontWeight: FontWeight.w500,
                                   color: isDark ? Colors.white60 : const Color(0xFF64748B),
                                 ),
                               ),
@@ -1297,7 +1335,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                         TextButton(
                           onPressed: () {
                             HapticFeedback.selectionClick();
-                            setState(() => _unreadAlertCount = 0);
+                            _markAlertsAsAcknowledged();
                             setModalState(() {});
                           },
                           child: const Text(
@@ -1320,27 +1358,13 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Alert 1: Gestational Milestone Clinical Alert
-                          _buildNotificationTile(
-                            icon: '🤰',
-                            iconBg: const Color(0xFFFFE8DC),
-                            tag: 'WEEK $_weeks CLINICAL MILESTONE',
-                            tagColor: const Color(0xFFFF8A65),
-                            title: 'Week $_weeks Gestation Protocol Active',
-                            body: _weeks >= 36
-                                ? 'Full-term protocol armed. Hospital delivery pack ready, anti-D status confirmed, and acute obstetric theater on pre-alert standby.'
-                                : 'Routine fetal development on track. Monitor kick frequency (>10 kicks in 2h) and log daily hydration.',
-                            time: 'Today',
-                            actionLabel: 'Open Insights',
-                            onAction: () {
-                              Navigator.of(ctx).pop();
-                              widget.onOpenInsightsTab?.call();
-                            },
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 10),
+                          // 1. Daily Clinical Content Library Cards
+                          for (final item in _dailyGuidanceCards) ...[
+                            _buildNotificationTileFromItem(item, ctx, isDark),
+                            const SizedBox(height: 10),
+                          ],
 
-                          // Alert 2: 24/7 Obstetric Specialist Triage Line
+                          // 2. 24/7 Obstetric Specialist Triage Line
                           _buildNotificationTile(
                             icon: '📞',
                             iconBg: const Color(0xFFDCFCE7),
@@ -1361,23 +1385,43 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                             },
                             isDark: isDark,
                           ),
-                          const SizedBox(height: 10),
+                          const SizedBox(height: 12),
 
-                          // Alert 4: Daily Wellness & Biometrics
-                          _buildNotificationTile(
-                            icon: '💧',
-                            iconBg: Colors.blue.shade100,
-                            tag: 'DAILY BIOMETRICS',
-                            tagColor: const Color(0xFF0284C7),
-                            title: 'Daily Hydration & Sleep Check-In',
-                            body: 'Keep amniotic volume optimal by logging today’s water intake and restorative sleep hours.',
-                            time: 'Daily Log',
-                            actionLabel: 'Log Biometrics',
-                            onAction: () {
-                              Navigator.of(ctx).pop();
-                              widget.onOpenInsightsTab?.call();
-                            },
-                            isDark: isDark,
+                          // 3. Strict Rule 2: Educational Disclaimer Container
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                            decoration: BoxDecoration(
+                              color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                              borderRadius: BorderRadius.circular(12),
+                              border: Border.all(
+                                color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+                              ),
+                            ),
+                            child: Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Padding(
+                                  padding: EdgeInsets.only(top: 1),
+                                  child: Icon(
+                                    Icons.info_outline_rounded,
+                                    size: 15,
+                                    color: Color(0xFF64748B),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    MaternalContentService.educationalDisclaimer,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                      height: 1.35,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
                         ],
                       ),
@@ -1392,6 +1436,87 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
+  Widget _buildNotificationTileFromItem(
+    MaternalContentItem item,
+    BuildContext ctx,
+    bool isDark,
+  ) {
+    String icon;
+    Color iconBg;
+    Color tagColor;
+
+    if (item.isSafety) {
+      icon = '🚨';
+      iconBg = const Color(0xFFFFE4E6);
+      tagColor = const Color(0xFFE11D48);
+    } else if (item.isTip) {
+      icon = '💡';
+      iconBg = const Color(0xFFCCFBF1);
+      tagColor = const Color(0xFF0D9488);
+    } else {
+      switch (item.slot) {
+        case 'nutrition':
+          icon = '🥗';
+          iconBg = const Color(0xFFD1FAE5);
+          tagColor = const Color(0xFF059669);
+          break;
+        case 'comfort':
+          icon = '🌿';
+          iconBg = const Color(0xFFE0F2FE);
+          tagColor = const Color(0xFF0284C7);
+          break;
+        case 'prepare':
+          icon = '📋';
+          iconBg = const Color(0xFFEDE9FE);
+          tagColor = const Color(0xFF7C3AED);
+          break;
+        case 'mind':
+          icon = '🧘';
+          iconBg = const Color(0xFFFCE7F3);
+          tagColor = const Color(0xFFDB2777);
+          break;
+        case 'review':
+        default:
+          icon = '📑';
+          iconBg = const Color(0xFFFEF3C7);
+          tagColor = const Color(0xFFD97706);
+          break;
+      }
+    }
+
+    final hasCta = item.ctaType != 'none' && item.ctaLabel != null && item.ctaLabel!.isNotEmpty;
+    final actionLabel = hasCta ? item.ctaLabel! : 'Acknowledge';
+
+    VoidCallback onAction;
+    if (item.ctaType == 'sos' || item.ctaType == 'red_flag') {
+      onAction = () {
+        Navigator.of(ctx).pop();
+        widget.onTriggerSos();
+      };
+    } else if (item.ctaType == 'profile') {
+      onAction = () {
+        Navigator.of(ctx).pop();
+        widget.onOpenShieldTab?.call();
+      };
+    } else {
+      onAction = () {
+        Navigator.of(ctx).pop();
+      };
+    }
+
+    return _buildNotificationTile(
+      icon: icon,
+      iconBg: iconBg,
+      tag: item.slotDisplayLabel,
+      tagColor: tagColor,
+      title: item.title,
+      body: item.body,
+      time: '8:00 AM Drop',
+      actionLabel: actionLabel,
+      onAction: onAction,
+      isDark: isDark,
+    );
+  }
   Widget _buildNotificationTile({
     required String icon,
     required Color iconBg,
@@ -1629,7 +1754,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
   }
 
   // ── Maternal Pre-written Daily Clinical Library Stack (Strict Rules 1-4) ───
-  Widget _buildMaternalGuidanceLibrarySection(bool isDark) {
+  Widget _buildCareAlertsAndNotificationsSection(bool isDark) {
     final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
     final subColor = isDark ? Colors.white60 : const Color(0xFF64748B);
 
@@ -1657,7 +1782,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'Daily Clinical Guidance',
+                    'Care Alerts & Notifications',
                     style: TextStyle(
                       fontSize: 16,
                       fontWeight: FontWeight.w900,
@@ -1666,7 +1791,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     ),
                   ),
                   Text(
-                    'Week $_weeks Protocol • Curated obstetric evidence library',
+                    'Refreshes daily at 8:00 AM • ${MaternalContentService.getNextRefreshDisplay()}',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
