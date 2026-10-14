@@ -45,6 +45,7 @@ class RequestScreenState extends State<RequestScreen>
 
   bool _loadingLocation = true;
   bool _submitting = false;
+  bool _isManualPin = false;
   LocationFix? _fix;
   String _address = '';
 
@@ -121,14 +122,12 @@ class RequestScreenState extends State<RequestScreen>
     try {
       _livePositionSub = _location.liveStream.listen((fix) {
         if (!mounted) return;
-        final isFirst = _fix == null;
-        final currentAccuracy = _fix?.accuracyMeters ?? 9999.0;
-        final newAccuracy = fix.accuracyMeters ?? 9999.0;
+        if (_isManualPin) return; // User explicitly selected a custom entrance or landmark pin
 
-        // Upgrade condition: previous fix was coarse (> 25m) and new fix is better (<= 25m),
-        // or new fix achieves sub-12m satellite precision.
-        final isAccuracyUpgrade = (currentAccuracy > 25.0 && newAccuracy <= 25.0) ||
-            (currentAccuracy > 15.0 && newAccuracy <= 12.0);
+        final wasCached = _fix == null || _fix!.fromCache;
+        final currentAcc = _fix?.accuracyMeters ?? 9999.0;
+        final newAcc = fix.accuracyMeters ?? 9999.0;
+        final accuracyImproved = newAcc < currentAcc - 3.0;
 
         final distance = _fix != null
             ? Geolocator.distanceBetween(
@@ -139,23 +138,24 @@ class RequestScreenState extends State<RequestScreen>
               )
             : 0.0;
 
-        final moved = isFirst || isAccuracyUpgrade || distance > 8;
+        // A live GPS fix ALWAYS overrides a cached estimate or missing fix!
+        // Also update whenever accuracy noticeably improves, or device moves > 5m.
+        final shouldUpdate = wasCached || accuracyImproved || distance > 5.0;
 
-        // Prevent coarse fixes (> 30m) from overriding precision fixes (<= 25m)
-        if (isFirst || isAccuracyUpgrade || newAccuracy <= currentAccuracy + 5.0) {
+        if (shouldUpdate) {
           setState(() {
             _fix = fix;
             _loadingLocation = false;
           });
 
-          // Always snap/recenter map when first fix arrives, precision upgrades, or location offsets significantly (> 20m)
-          if (isFirst || isAccuracyUpgrade || distance > 20.0) {
+          // Move map to the fresh position
+          WidgetsBinding.instance.addPostFrameCallback((_) {
             try {
               _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
             } catch (_) {}
-          }
+          });
 
-          if (moved) {
+          if (wasCached || distance > 10.0) {
             _geocoding.reverseGeocode(
               latitude: fix.latitude,
               longitude: fix.longitude,
@@ -311,9 +311,12 @@ class RequestScreenState extends State<RequestScreen>
       _fix = fix;
       _loadingLocation = false;
     });
-    try {
-      _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
-    } catch (_) {}
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      try {
+        _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
+      } catch (_) {}
+    });
 
     _geocoding.reverseGeocode(
       latitude: fix.latitude,
@@ -326,42 +329,48 @@ class RequestScreenState extends State<RequestScreen>
   }
 
   Future<void> _loadLocation() async {
-    final estimate = await _location.quickEstimate();
-    // Only apply estimate if it has true high accuracy (<= 25m)
-    if (estimate != null &&
-        estimate.accuracyMeters != null &&
-        estimate.accuracyMeters! <= 25.0 &&
-        mounted) {
-      await _applyFix(estimate);
-    }
+    _isManualPin = false;
+    // 1. Instant estimate (< 50ms) to immediately show user's area without blocking
+    try {
+      final estimate = await _location.quickEstimate();
+      if (estimate != null && mounted) {
+        await _applyFix(estimate);
+      }
+    } catch (_) {}
 
+    // 2. Fetch fresh high-precision GPS lock (< 2-3s)
     try {
       final fix = await _location.current();
       if (mounted) {
         await _applyFix(fix);
       }
     } catch (e) {
-      if (!mounted) return;
-      if (_fix == null) {
-        final fallback = LocationFix(
-          latitude: kDefaultCenter.latitude,
-          longitude: kDefaultCenter.longitude,
-          fromCache: true,
+      debugPrint('Error loading fresh GPS fix: $e');
+      if (mounted && _fix == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Could not acquire GPS fix. Please verify location is enabled.'),
+            action: SnackBarAction(
+              label: 'Retry',
+              textColor: const Color(0xFF00D4FF),
+              onPressed: _loadLocation,
+            ),
+          ),
         );
-        await _applyFix(fallback);
       }
     }
   }
 
   /// Forces fresh satellite hardware GPS reading and recalibrates position if offset
   Future<void> _reloadGpsLocation({bool userInitiated = true}) async {
+    _isManualPin = false;
     setState(() => _loadingLocation = true);
     HapticFeedback.selectionClick();
 
     try {
       final previousFix = _fix;
       final freshFix = await _location.forceFreshGps(
-        timeout: const Duration(seconds: 8),
+        timeout: const Duration(seconds: 4),
       );
 
       if (!mounted) return;
@@ -382,7 +391,7 @@ class RequestScreenState extends State<RequestScreen>
         final acc = freshFix.accuracyMeters != null
             ? '±${freshFix.accuracyMeters!.round()}m'
             : '';
-        final msg = offsetDistance > 15.0
+        final msg = offsetDistance > 10.0
             ? 'GPS Recalibrated (adjusted by ${offsetDistance.round()}m $acc)'
             : 'GPS Locked at highest precision $acc';
 
@@ -407,8 +416,14 @@ class RequestScreenState extends State<RequestScreen>
         );
       }
     } catch (e) {
-      if (mounted) {
-        await _loadLocation();
+      if (mounted && userInitiated) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Could not recalibrate GPS. Please check location settings.'),
+            backgroundColor: Color(0xFF07193F),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } finally {
       if (mounted) {
@@ -420,6 +435,7 @@ class RequestScreenState extends State<RequestScreen>
 
   Future<void> _onMapTap(TapPosition _, LatLng point) async {
     HapticFeedback.lightImpact();
+    _isManualPin = true;
     await _applyFix(
       LocationFix(latitude: point.latitude, longitude: point.longitude),
     );
@@ -948,11 +964,13 @@ class RequestScreenState extends State<RequestScreen>
                 child: Stack(
                   children: [
                     MapboxMapView.patientLocation(
+                      key: ValueKey(_fix == null ? 'waiting_gps' : 'ready_gps'),
                       latitude: _fix?.latitude ?? kDefaultCenter.latitude,
                       longitude: _fix?.longitude ?? kDefaultCenter.longitude,
                       zoom: 16.5,
-                      interactive: false,
+                      interactive: true,
                       mapController: _mapController,
+                      onTap: _onMapTap,
                     ),
 
                     // Live GPS Accuracy Tag (Top Left)
@@ -965,11 +983,13 @@ class RequestScreenState extends State<RequestScreen>
                           color: const Color(0xFF07193F).withValues(alpha: 0.92),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: accuracy != null && accuracy <= 15
-                                ? const Color(0xFF00E676)
-                                : (accuracy != null && accuracy <= 25
-                                    ? const Color(0xFF00D4FF)
-                                    : const Color(0xFFFFB74D)),
+                            color: _isManualPin
+                                ? const Color(0xFF00D4FF)
+                                : (accuracy != null && accuracy <= 15
+                                    ? const Color(0xFF00E676)
+                                    : (accuracy != null && accuracy <= 25
+                                        ? const Color(0xFF00D4FF)
+                                        : const Color(0xFFFFB74D))),
                             width: 1.1,
                           ),
                           boxShadow: [
@@ -983,25 +1003,31 @@ class RequestScreenState extends State<RequestScreen>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              accuracy != null && accuracy <= 15
-                                  ? Icons.my_location_rounded
-                                  : (accuracy != null && accuracy <= 25
-                                      ? Icons.gps_fixed_rounded
-                                      : Icons.satellite_alt_rounded),
+                              _isManualPin
+                                  ? Icons.pin_drop_rounded
+                                  : (accuracy != null && accuracy <= 15
+                                      ? Icons.my_location_rounded
+                                      : (accuracy != null && accuracy <= 25
+                                          ? Icons.gps_fixed_rounded
+                                          : Icons.satellite_alt_rounded)),
                               size: 13,
-                              color: accuracy != null && accuracy <= 15
-                                  ? const Color(0xFF00E676)
-                                  : (accuracy != null && accuracy <= 25
-                                      ? const Color(0xFF00D4FF)
-                                      : const Color(0xFFFFB74D)),
+                              color: _isManualPin
+                                  ? const Color(0xFF00D4FF)
+                                  : (accuracy != null && accuracy <= 15
+                                      ? const Color(0xFF00E676)
+                                      : (accuracy != null && accuracy <= 25
+                                          ? const Color(0xFF00D4FF)
+                                          : const Color(0xFFFFB74D))),
                             ),
                             const SizedBox(width: 5),
                             Text(
-                              accuracy != null
-                                  ? (accuracy <= 25
-                                      ? 'GPS Locked ±${accuracy.round()}m'
-                                      : 'Calibrating GPS (±${accuracy.round()}m)...')
-                                  : 'Acquiring GPS...',
+                              _isManualPin
+                                  ? 'Manual Pin (Tap GPS to reset)'
+                                  : (accuracy != null
+                                      ? (accuracy <= 25
+                                          ? 'GPS Locked ±${accuracy.round()}m'
+                                          : 'Calibrating GPS (±${accuracy.round()}m)...')
+                                      : 'Acquiring GPS...'),
                               style: const TextStyle(
                                 color: Colors.white,
                                 fontSize: 10.5,
