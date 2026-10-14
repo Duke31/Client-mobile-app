@@ -40,7 +40,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   String _selectedBloodGroup = 'Unknown';
   String _selectedGenotype = 'AA';
   String _selectedAgeBand = '18-39';
-  String _preferredHospital = 'LifeCare Private Clinic (Ring Road, Ibadan)';
+  String _preferredHospital = 'None / Auto-Select (Nearest Capable Facility)';
   final List<String> _selectedRisks = [];
 
   bool _isLoading = true;
@@ -71,6 +71,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   ];
 
   static const List<String> _hospitals = [
+    'None / Auto-Select (Nearest Capable Facility)',
     'LifeCare Private Clinic (Ring Road, Ibadan)',
     'Bodija Premier Medical Center (Ibadan)',
     'University College Hospital - UCH Private Wing (Ibadan)',
@@ -164,8 +165,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
           }
 
           final hosp = res['preferred_hospital']?.toString();
-          if (hosp != null && _hospitals.contains(hosp)) {
+          if (hosp != null && hosp.isNotEmpty && _hospitals.contains(hosp)) {
             _preferredHospital = hosp;
+          } else {
+            _preferredHospital = 'None / Auto-Select (Nearest Capable Facility)';
           }
 
           if (res['known_risks'] is List) {
@@ -213,7 +216,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'blood_group': _selectedBloodGroup != 'Unknown' ? _selectedBloodGroup : null,
         'genotype': _selectedGenotype,
         'age_band': _selectedAgeBand,
-        'preferred_hospital': _preferredHospital,
+        'preferred_hospital': (_preferredHospital.contains('Auto-Select') || _preferredHospital.contains('None /'))
+            ? null
+            : _preferredHospital,
         'known_risks': isMaternal ? _selectedRisks : null,
         'allergies': _allergiesController.text.trim().isNotEmpty
             ? _allergiesController.text.trim()
@@ -230,6 +235,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
       };
 
       await _supabase.from('profiles').upsert(payload, onConflict: 'user_id');
+
+      try {
+        await _supabase.auth.updateUser(
+          UserAttributes(
+            data: {
+              ...payload,
+              'subscription_tier': _profileType,
+            },
+          ),
+        );
+      } catch (_) {}
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
