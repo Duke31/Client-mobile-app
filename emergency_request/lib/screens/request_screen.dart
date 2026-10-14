@@ -50,6 +50,7 @@ class RequestScreenState extends State<RequestScreen>
   Map<String, dynamic>? _activeMission;
   Timer? _activeMissionTimer;
   StreamSubscription? _realtimeSub;
+  StreamSubscription<LocationFix>? _gpsStreamSub;
 
   // Cached profile data
   String? _profileName;
@@ -117,6 +118,7 @@ class RequestScreenState extends State<RequestScreen>
     _pulseController.dispose();
     _activeMissionTimer?.cancel();
     _realtimeSub?.cancel();
+    _gpsStreamSub?.cancel();
     _geocoding.dispose();
     super.dispose();
   }
@@ -245,6 +247,21 @@ class RequestScreenState extends State<RequestScreen>
         await _applyFix(fallback);
       }
     }
+
+    // Start continuous live GPS streaming
+    _gpsStreamSub?.cancel();
+    try {
+      _gpsStreamSub = _location.getPositionStream().listen((liveFix) {
+        if (mounted) {
+          setState(() {
+            _fix = liveFix;
+            _loadingLocation = false;
+          });
+        }
+      }, onError: (e) {
+        debugPrint('Continuous GPS stream notice: $e');
+      });
+    } catch (_) {}
   }
 
   Future<void> _onMapTap(TapPosition _, LatLng point) async {
@@ -1262,11 +1279,11 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
   int _priority = 1;
 
   static const List<Map<String, String>> _ageBandOptions = [
-    {'value': '0-1', 'label': '0-1 yr (Infant)'},
-    {'value': '2-12', 'label': '2-12 yrs (Child)'},
-    {'value': '13-17', 'label': '13-17 yrs (Teen)'},
     {'value': '18-39', 'label': '18-39 yrs (Adult)'},
     {'value': '40-64', 'label': '40-64 yrs (Mature)'},
+    {'value': '13-17', 'label': '13-17 yrs (Teen)'},
+    {'value': '2-12', 'label': '2-12 yrs (Child)'},
+    {'value': '0-1', 'label': '0-1 yr (Infant)'},
     {'value': '65+', 'label': '65+ yrs (Senior)'},
   ];
 
@@ -1576,7 +1593,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                childAspectRatio: 3.2,
+                childAspectRatio: 2.3,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
               ),
@@ -1619,7 +1636,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                         Expanded(
                           child: Text(
                             title,
-                            maxLines: 1,
+                            maxLines: 2,
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: isSel ? Colors.white : Colors.white70,

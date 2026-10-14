@@ -29,7 +29,7 @@ class _AuthScreenState extends State<AuthScreen> {
   // Care Plan Onboarding State
   String _selectedPlan = 'standard'; // 'standard' (default) | 'maternal'
   int _gestationalWeeks = 32;
-  String _selectedBloodGroup = 'O- (Rare Rh-Negative Reserve)';
+  String _selectedBloodGroup = 'O-';
   String _selectedGenotype = 'AA';
   String _preferredHospital = 'None / Auto-Select (Nearest Capable Facility)';
 
@@ -42,7 +42,7 @@ class _AuthScreenState extends State<AuthScreen> {
     'AB+',
     'AB-',
     'O+',
-    'O- (Rare Rh-Negative Reserve)',
+    'O-',
   ];
 
   static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];

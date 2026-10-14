@@ -120,7 +120,7 @@ class _DashboardTabState extends State<DashboardTab> {
                       border: Border.all(color: Colors.redAccent.withValues(alpha: 0.6)),
                     ),
                     child: const Text(
-                      '🩸 Rare Blood Shield',
+                      '🩸 Rh-Negative Reserve',
                       style: TextStyle(
                         color: Colors.redAccent,
                         fontSize: 10,

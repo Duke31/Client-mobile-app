@@ -22,6 +22,18 @@ class LocationFix {
 class LocationService {
   const LocationService();
 
+  /// Continuous live GPS stream for real-time tracking
+  Stream<LocationFix> getPositionStream() {
+    return Geolocator.getPositionStream(
+      locationSettings: _streamSettings(),
+    ).map((pos) => LocationFix(
+      latitude: pos.latitude,
+      longitude: pos.longitude,
+      accuracyMeters: pos.accuracy,
+      fromCache: false,
+    ));
+  }
+
   LocationSettings _streamSettings() {
     if (defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(

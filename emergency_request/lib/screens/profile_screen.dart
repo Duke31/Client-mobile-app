@@ -56,7 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'AB+',
     'AB-',
     'O+',
-    'O- (Rare Rh-Negative Reserve)',
+    'O-',
   ];
 
   static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];
@@ -148,7 +148,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           final bg = res['blood_group']?.toString();
           if (bg != null) {
             if (bg.contains('O-')) {
-              _selectedBloodGroup = 'O- (Rare Rh-Negative Reserve)';
+              _selectedBloodGroup = 'O-';
             } else if (_bloodGroups.contains(bg)) {
               _selectedBloodGroup = bg;
             }

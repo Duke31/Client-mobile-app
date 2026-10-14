@@ -48,12 +48,20 @@ class MemberProfile {
   /// Backward-compatible alias for rare blood grouping
   bool get isRareBlood => isRhesusNegative;
 
+  String get cleanBloodGroup {
+    if (bloodGroup == null || bloodGroup!.trim().isEmpty) return 'Not Logged';
+    String clean = bloodGroup!.trim();
+    clean = clean.replaceAll(RegExp(r'\s*\(.*?\)', caseSensitive: false), '').trim();
+    return clean.isEmpty ? bloodGroup!.trim() : clean;
+  }
+
   String get bloodRhesusStatusLabel {
-    if (bloodGroup == null || bloodGroup!.isEmpty) return 'Blood Group Not Logged';
+    final bg = cleanBloodGroup;
+    if (bg == 'Not Logged') return 'Blood Group Not Logged';
     if (isRhesusNegative) {
-      return '$bloodGroup (Rare Rh-Negative Reserve)';
+      return '$bg (Rh-Negative Reserve)';
     }
-    return '$bloodGroup (Standard Reserve)';
+    return '$bg (Standard Reserve)';
   }
 
   /// Total human pregnancy duration in obstetrics: 40 weeks = 280 days from LMP.
