@@ -1,4 +1,4 @@
-# Solace EMS: Maternal Content Pre-Written Daily Library Test & Verification Report
+﻿# Solace EMS: Maternal Content Pre-Written Daily Library Test & Verification Report
 
 This document specifies and verifies the implementation of the pre-written daily maternal clinical guidance library for Solace EMS clients under the `maternal` care plan, adhering strictly to `LAB_PROMPT_maternal_library.md` and Solace database security rules.
 
@@ -223,3 +223,44 @@ The app enforces a strict single-source architecture where `maternal_content` is
 - **Insights SOS Reachability**: SOS button added directly to the Insights header for instant 1-tap emergency dispatch from any wellness view.
 - **Care Plan Scoping**: Maternal Insights and wellness features are strictly mounted only when profiles.care_plan = 'maternal'. Standard plan users default to the core emergency dispatch and mission tracking shell.
 - **Owner-Only RLS**: Database migration 20261014_maternal_wellness_logs.sql enforces uth.uid() = user_id for all SELECT, INSERT, UPDATE, and DELETE operations, with non access unconditionally revoked.
+## 8. Medical ID & Care Plan Profile Alignment
+
+### 8.1 Signup Minimum Paths (Standard vs Maternal)
+- **Standard Emergency Path**:
+  - Requires only `full_name`, `phone`, and `care_plan: standard`.
+  - Client age captured via `date_of_birth` picker with optional fallback to `age_band` (`18-39` default, `0-1`, `2-12`, `13-17`, `40-64`, `65+`).
+  - Optional: plain `blood_group` and `allergies`.
+  - Zero friction: does not block signup on genotype, preferred hospital, full chronic disease list, or comprehensive risk checklists.
+- **Maternal Care Path**:
+  - In addition to standard fields, captures `edd` (or `lmp_date`), optional parity, and optional "Previous C-Section" chip.
+  - Automatically derives and displays read-only computed gestational week and trimester.
+  - **No manual gestational age slider** as editable source of truth.
+
+### 8.2 Profile Edit & Computed Gestational Week Persistence
+- **Block 1 — Emergency Medical ID**:
+  - Displays and permits editing of Full Name, Callback Phone, Date of Birth, Derived Age in years, Age Band, Plain Blood Group, Allergies, Chronic Conditions, Next of Kin (Name & Phone), and optional Genotype under "More details".
+- **Block 2 — Care Plan**:
+  - Explicit toggle between Standard and Maternal care plans.
+  - Switching away from Maternal triggers a safety confirmation dialog to prevent accidental data disconnection.
+  - When Maternal is active:
+    - Displays read-only computed gestational week, day, and trimester badge.
+    - Updating EDD automatically recalculates LMP (`EDD - 280 days`) and immediately refreshes the gestational week.
+    - Updating LMP automatically recalculates EDD (`LMP + 280 days`) and immediately refreshes the gestational week.
+    - User-declared maternal risk chips (Previous C-Section, Hypertension, Diabetes, Multiples, Pre-Eclampsia, Preterm, Anemia).
+    - Preferred hospital clearly labeled as preference only (coordinated by dispatch, no admission guarantee).
+- **Mandatory Footer Disclaimer**:
+  - *"You provide this for emergencies. It is not a hospital medical record. Hospital assignment is coordinated by dispatch."*
+
+### 8.3 Elimination of Marketing & Guarantee Overclaims
+- Verified zero occurrences across UI of:
+  - `"Priority L&D Direct Admission"`
+  - `"subscription admission"`
+  - `"Rare Rh-Negative Reserve"` / `"Universal Rh+ Reserve"` / `"Blood Shield"`
+  - `"Direct-to-Bed Guarantee"`
+- Blood group displays are strictly plain symbols (`O-`, `A+`, `B+`, etc.) without marketing tags.
+
+### 8.4 SOS & Dispatch Payload Alignment
+- Emergency intake sheet prefills `patient_age_band` from profile derived DOB or stored age band.
+- Bystander override: allows selecting any age band (`0-1`, `2-12`, `13-17`, `18-39`, `40-64`, `65+`) regardless of profile care plan when calling for someone else.
+- Dispatch notes include sanitized plain blood groups and hospital preference clearly flagged as `[PREFERRED HOSPITAL HINT: ... (preference only, dispatch coordinates assignment)]`.
+- Row-Level Security: table `public.profiles` enforces strict owner-only RLS (`auth.uid() = user_id`) for authenticated users, with zero anon grants.
