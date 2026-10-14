@@ -189,3 +189,37 @@ The daily 3-card clinical guidance stack is integrated directly into the **Care 
 - Anchor logic: If current time is < 08:00, the active clinical cycle belongs to yesterday's 8:00 AM drop; if >= 08:00, it belongs to today's 8:00 AM drop.
 - Timer: _cycleRefreshTimer automatically calculates the remaining duration until the next 8:00 AM drop (getNextClinicalCycleRefresh()), scheduling an automatic live refresh and notification update when 8:00 AM arrives.
 - Countdown display: getNextRefreshDisplay() updates dynamically (Refreshes in Xh Ym (8:00 AM)).
+---
+
+## 7. Maternal Insights & Unified Daily Content Architecture (No Repetition)
+
+### 7.1 Single Content Source Architecture
+The app enforces a strict single-source architecture where `maternal_content` is keyed by gestational week + optional weekday + slot (`tip`, `safety`, `nutrition`, `comfort`, `prepare`, `mind`, `review`):
+- **Insights (Canonical Read Surface)**:
+  - Renders the full guidance card (title, full body, CTA action button).
+  - Displays today's clinical tip; when a safety card matches today, the safety card is prioritized and displayed first or alongside the tip.
+  - Accompanied by the mandatory educational disclaimer: *"General health education only. Not a substitute for professional care."*
+- **Notifications / Care Alerts (Rare Nudge)**:
+  - Throttled to at most ~1 notification per day.
+  - Displays title and 1 short line snippet only (never the full multi-paragraph article).
+  - Features a deep link action: "Read in Insights", which seamlessly opens the Insights tab to view the full tip.
+  - Precludes full-text duplication across surfaces.
+- **Danger Protocols (Red-Flag Emergency Pipeline)**:
+  - Concise red-flag obstetric conditions: Vaginal Bleeding, Amniotic Fluid Leak, Severe Headache & Vision Changes, Reduced Fetal Movements, and Preterm / Regular Painful Contractions.
+  - Each action launches the exact same emergency dispatch pipeline with pre-filled obstetric SBAR triage notes.
+
+### 7.2 Clinical Overclaim Eradication
+- **Hydration**: Replaced references to "amniotic index risk" with supportive encouragement for fluid intake, pointing severe symptoms (vomiting, pain) to Danger Protocols and SOS.
+- **Sleep / Rest**: Replaced claims regarding "cellular repair" and "uterine-placental perfusion" with realistic "rest target for late pregnancy (8-9 hours)".
+- **Section Naming**: Renamed "Daily Clinical Balance" to "Today's habits".
+- **Fetal Kicks**: Replaced pass/fail shame ("Goal: 10 movements in 2 hours") with supportive guidance: *"Know your baby's usual pattern. If movements feel clearly less than normal → Danger Protocols or SOS."*
+  - Third-trimester focus ($\ge 28$ weeks) with collapsed guidance for early gestation.
+  - Empty state for first session explains kick counting without alarmism.
+- **Daily Mood**: One log per day (updatable, owner-only RLS). If "Awful" or "Bad" is logged, displays a soft, supportive prompt to review Danger Protocols or emergency care (no auto-diagnosis).
+- **Weekly Trend Chart**: Restricts rendering to the last 7 mood points only.
+
+### 7.3 Navigation & Security Verification
+- **Patient-Facing "SOS"**: Renamed staff-oriented "SOS Engine" labels to patient-facing "SOS".
+- **Insights SOS Reachability**: SOS button added directly to the Insights header for instant 1-tap emergency dispatch from any wellness view.
+- **Care Plan Scoping**: Maternal Insights and wellness features are strictly mounted only when profiles.care_plan = 'maternal'. Standard plan users default to the core emergency dispatch and mission tracking shell.
+- **Owner-Only RLS**: Database migration 20261014_maternal_wellness_logs.sql enforces uth.uid() = user_id for all SELECT, INSERT, UPDATE, and DELETE operations, with non access unconditionally revoked.
