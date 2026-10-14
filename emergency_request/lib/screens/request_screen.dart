@@ -294,6 +294,8 @@ class RequestScreenState extends State<RequestScreen>
 
     HapticFeedback.heavyImpact();
 
+    final isMaternal = _profileIsMaternal || (widget.initialProfile?.isMaternal ?? false);
+
     final intake = await showModalBottomSheet<_IntakeData>(
       context: context,
       isScrollControlled: true,
@@ -307,6 +309,11 @@ class RequestScreenState extends State<RequestScreen>
         currentAddress: _address,
         latitude: _fix!.latitude,
         longitude: _fix!.longitude,
+        isMaternal: isMaternal,
+        gestationalWeeks: _profileGestationalWeeks ?? widget.initialProfile?.computedWeeks,
+        edd: _profileEdd ?? widget.initialProfile?.edd,
+        gravidaPara: _profileGravidaPara ?? widget.initialProfile?.gravidaPara,
+        preferredHospital: _profilePreferredHospital ?? widget.initialProfile?.preferredHospitalDisplay,
       ),
     );
 
@@ -340,14 +347,28 @@ class RequestScreenState extends State<RequestScreen>
         notesList.add('[PREFERRED HOSPITAL: $_profilePreferredHospital]');
       }
       if (_profileIsMaternal ||
+          intake.dbType == 'Obstetric' ||
           intake.condition.toLowerCase().contains('obstetric') ||
           intake.condition.toLowerCase().contains('labor') ||
           intake.condition.toLowerCase().contains('maternal')) {
-        final gWeeks = _profileGestationalWeeks != null ? '${_profileGestationalWeeks}w' : 'Active Gestation';
-        final eddStr = (_profileEdd != null && _profileEdd!.isNotEmpty) ? ' | EDD: $_profileEdd' : '';
-        final gpStr = (_profileGravidaPara != null && _profileGravidaPara!.isNotEmpty) ? ' | Parity: $_profileGravidaPara' : '';
-        final bgStr = (_profileBloodGroup != null && _profileBloodGroup != 'Unknown') ? ' | Blood: $_profileBloodGroup' : '';
-        final gtStr = (_profileGenotype != null && _profileGenotype!.isNotEmpty) ? ' | Genotype: $_profileGenotype' : '';
+        notesList.add('[OBSTETRIC CONDITION: ${intake.condition}]');
+        final gWeeks = _profileGestationalWeeks != null
+            ? '${_profileGestationalWeeks}w'
+            : (widget.initialProfile?.computedWeeks != null
+                ? '${widget.initialProfile!.computedWeeks}w'
+                : 'Active Gestation');
+        final eddStr = (_profileEdd != null && _profileEdd!.isNotEmpty)
+            ? ' | EDD: $_profileEdd'
+            : (widget.initialProfile?.edd != null ? ' | EDD: ${widget.initialProfile!.edd}' : '');
+        final gpStr = (_profileGravidaPara != null && _profileGravidaPara!.isNotEmpty)
+            ? ' | Parity: $_profileGravidaPara'
+            : (widget.initialProfile?.gravidaPara != null ? ' | Parity: ${widget.initialProfile!.gravidaPara}' : '');
+        final bgStr = (_profileBloodGroup != null && _profileBloodGroup != 'Unknown')
+            ? ' | Blood: $_profileBloodGroup'
+            : (widget.initialProfile?.bloodGroup != null ? ' | Blood: ${widget.initialProfile!.bloodGroup}' : '');
+        final gtStr = (_profileGenotype != null && _profileGenotype!.isNotEmpty)
+            ? ' | Genotype: $_profileGenotype'
+            : '';
         notesList.add('[OBSTETRIC SBAR: Gestation: $gWeeks$eddStr$gpStr$bgStr$gtStr]');
       }
       if (_profileBloodGroup != null && _profileBloodGroup != 'Unknown') {
@@ -365,11 +386,17 @@ class RequestScreenState extends State<RequestScreen>
 
       final assembledNotes = notesList.isNotEmpty ? notesList.join(' | ') : '';
 
+      final mappedDbType = intake.dbType ?? (
+        _profileIsMaternal || intake.condition.toLowerCase().contains('labor') || intake.condition.toLowerCase().contains('obstetric')
+          ? 'Obstetric'
+          : 'Other'
+      );
+
       final rpcResult = await service.createRequest(
         latitude: fix.latitude,
         longitude: fix.longitude,
         address: finalAddress,
-        emergencyType: intake.condition,
+        emergencyType: mappedDbType,
         ageBand: intake.ageBand,
         contactPhone: intake.contactPhone ?? '',
         notes: assembledNotes,
@@ -922,7 +949,7 @@ class RequestScreenState extends State<RequestScreen>
                       child: Row(
                         mainAxisAlignment: MainAxisAlignment.center,
                         children: const [
-                          Icon(Icons.shield_rounded, color: Color(0xFF00E676), size: 14),
+                          Icon(Icons.verified_user_rounded, color: Color(0xFF00E676), size: 14),
                           SizedBox(width: 6),
                           Flexible(
                             child: Text(
@@ -1007,18 +1034,22 @@ class RequestScreenState extends State<RequestScreen>
                                             mainAxisAlignment: MainAxisAlignment.center,
                                             crossAxisAlignment: CrossAxisAlignment.start,
                                             children: [
-                                              const Text(
-                                                'TAP FOR EMERGENCY SOS',
+                                              Text(
+                                                _profileIsMaternal
+                                                    ? 'DISPATCH OBSTETRIC AMBULANCE'
+                                                    : 'TAP FOR EMERGENCY SOS',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
-                                                style: TextStyle(
-                                                  fontSize: 15,
+                                                style: const TextStyle(
+                                                  fontSize: 14.5,
                                                   fontWeight: FontWeight.w900,
-                                                  letterSpacing: 1.0,
+                                                  letterSpacing: 0.8,
                                                 ),
                                               ),
                                               Text(
-                                                'Instant Ambulance • Medic Crew • Hospital Bed',
+                                                _profileIsMaternal
+                                                    ? 'Priority L&D Bed • Theater Pre-Alert • En-route Medic'
+                                                    : 'Instant Ambulance • Medic Crew • Hospital Bed',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
@@ -1168,6 +1199,7 @@ class RequestScreenState extends State<RequestScreen>
 
 class _IntakeData {
   final String condition;
+  final String? dbType;
   final String ageBand;
   final String? contactPhone;
   final String? manualAddress;
@@ -1176,6 +1208,7 @@ class _IntakeData {
 
   const _IntakeData({
     required this.condition,
+    this.dbType,
     this.ageBand = 'unknown',
     this.contactPhone,
     this.manualAddress,
@@ -1193,6 +1226,11 @@ class _EmergencyConfirmSheet extends StatefulWidget {
   final String currentAddress;
   final double latitude;
   final double longitude;
+  final bool isMaternal;
+  final int? gestationalWeeks;
+  final String? edd;
+  final String? gravidaPara;
+  final String? preferredHospital;
 
   const _EmergencyConfirmSheet({
     this.defaultPhone,
@@ -1203,6 +1241,11 @@ class _EmergencyConfirmSheet extends StatefulWidget {
     required this.currentAddress,
     required this.latitude,
     required this.longitude,
+    this.isMaternal = false,
+    this.gestationalWeeks,
+    this.edd,
+    this.gravidaPara,
+    this.preferredHospital,
   });
 
   @override
@@ -1227,13 +1270,73 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     {'value': '65+', 'label': '65+ yrs (Senior)'},
   ];
 
-  static const List<Map<String, dynamic>> _quickConditions = [
+  static const List<Map<String, dynamic>> _maternalConditions = [
+    {
+      'label': 'Active Labor / PROM',
+      'title': 'Water Broke / Labor',
+      'icon': Icons.water_drop_rounded,
+      'color': Color(0xFFE11D48),
+      'priority': 1,
+      'dbType': 'Obstetric',
+    },
+    {
+      'label': 'Vaginal Bleeding',
+      'title': 'Hemorrhage Alert',
+      'icon': Icons.bloodtype_rounded,
+      'color': Color(0xFFDC2626),
+      'priority': 1,
+      'dbType': 'Obstetric',
+    },
+    {
+      'label': 'Pre-eclampsia / Fits',
+      'title': 'Severe Headache / Aura',
+      'icon': Icons.warning_amber_rounded,
+      'color': Color(0xFFEA580C),
+      'priority': 1,
+      'dbType': 'Obstetric',
+    },
+    {
+      'label': 'Fetal Distress',
+      'title': 'Decreased Movement',
+      'icon': Icons.favorite_border_rounded,
+      'color': Color(0xFFD97706),
+      'priority': 1,
+      'dbType': 'Obstetric',
+    },
+    {
+      'label': 'Severe Pelvic Pain',
+      'title': 'Rigid Abdomen',
+      'icon': Icons.healing_rounded,
+      'color': Color(0xFFC026D3),
+      'priority': 1,
+      'dbType': 'Obstetric',
+    },
+    {
+      'label': 'Imminent Delivery',
+      'title': 'Crowning / Cord Prolapse',
+      'icon': Icons.emergency_rounded,
+      'color': Color(0xFFB91C1C),
+      'priority': 1,
+      'dbType': 'Obstetric',
+    },
+    {
+      'label': 'Other Emergency',
+      'title': 'General Medical Event',
+      'icon': Icons.medical_services_rounded,
+      'color': Color(0xFF2563EB),
+      'priority': 2,
+      'dbType': 'Other',
+    },
+  ];
+
+  static const List<Map<String, dynamic>> _standardConditions = [
     {
       'label': 'Accident',
       'title': 'Road Accident',
       'icon': Icons.car_crash_rounded,
       'color': Color(0xFFFB8C00),
       'priority': 1,
+      'dbType': 'Trauma',
     },
     {
       'label': 'Cardiac',
@@ -1241,6 +1344,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
       'icon': Icons.favorite_rounded,
       'color': Color(0xFFE53935),
       'priority': 1,
+      'dbType': 'Cardiac',
     },
     {
       'label': 'Trauma',
@@ -1248,6 +1352,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
       'icon': Icons.healing_rounded,
       'color': Color(0xFFD81B60),
       'priority': 1,
+      'dbType': 'Trauma',
     },
     {
       'label': 'Respiratory',
@@ -1255,6 +1360,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
       'icon': Icons.air_rounded,
       'color': Color(0xFF00ACC1),
       'priority': 1,
+      'dbType': 'Respiratory',
     },
     {
       'label': 'Stroke',
@@ -1262,20 +1368,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
       'icon': Icons.psychology_rounded,
       'color': Color(0xFF8E24AA),
       'priority': 1,
-    },
-    {
-      'label': 'Obstetric',
-      'title': 'Maternity / Labor',
-      'icon': Icons.pregnant_woman_rounded,
-      'color': Color(0xFFEC407A),
-      'priority': 2,
-    },
-    {
-      'label': 'Allergy',
-      'title': 'Severe Allergy',
-      'icon': Icons.vaccines_rounded,
-      'color': Color(0xFFFFB300),
-      'priority': 1,
+      'dbType': 'Stroke',
     },
     {
       'label': 'Other',
@@ -1283,14 +1376,26 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
       'icon': Icons.medical_services_rounded,
       'color': Color(0xFF1E88E5),
       'priority': 2,
+      'dbType': 'Other',
     },
   ];
+
+  List<Map<String, dynamic>> get _conditionsList =>
+      widget.isMaternal ? _maternalConditions : _standardConditions;
+
   @override
   void initState() {
     super.initState();
     _phoneController = TextEditingController(text: widget.defaultPhone ?? '');
     if (widget.defaultAgeBand != null && widget.defaultAgeBand!.trim().isNotEmpty) {
       _selectedAgeBand = widget.defaultAgeBand!.trim();
+    }
+    if (widget.isMaternal) {
+      _selectedCondition = 'Active Labor / PROM';
+      _priority = 1;
+    } else {
+      _selectedCondition = 'Accident';
+      _priority = 1;
     }
   }
 
@@ -1304,14 +1409,22 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
 
   void _confirm() {
     HapticFeedback.heavyImpact();
+    final match = _conditionsList.firstWhere(
+      (c) => c['label'] == _selectedCondition,
+      orElse: () => _conditionsList.first,
+    );
+    final dbType = match['dbType'] as String? ?? (widget.isMaternal ? 'Obstetric' : 'Other');
+    final p = match['priority'] as int? ?? _priority;
+
     Navigator.of(context).pop(
       _IntakeData(
         condition: _selectedCondition,
+        dbType: dbType,
         ageBand: _selectedAgeBand,
         contactPhone: _phoneController.text.trim().isNotEmpty ? _phoneController.text.trim() : null,
         manualAddress: _landmarkController.text.trim().isNotEmpty ? _landmarkController.text.trim() : null,
         notes: _notesController.text.trim().isNotEmpty ? _notesController.text.trim() : null,
-        priority: _priority,
+        priority: p,
       ),
     );
   }
@@ -1352,37 +1465,67 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: Colors.red.shade900.withValues(alpha: 0.5),
+                    color: widget.isMaternal ? const Color(0xFFE11D48).withOpacity(0.2) : Colors.red.shade900.withValues(alpha: 0.5),
                     shape: BoxShape.circle,
                   ),
-                  child: const Icon(Icons.emergency_rounded, color: Colors.redAccent, size: 24),
+                  child: Icon(
+                    widget.isMaternal ? Icons.pregnant_woman_rounded : Icons.emergency_rounded,
+                    color: widget.isMaternal ? const Color(0xFFFF4081) : Colors.redAccent,
+                    size: 24,
+                  ),
                 ),
                 const SizedBox(width: 12),
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       Text(
-                        'Instant Emergency Dispatch',
+                        widget.isMaternal ? 'Maternal Obstetric Emergency Desk' : 'Instant Emergency Dispatch',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
+                        style: const TextStyle(
                           color: Colors.white,
-                          fontSize: 16,
+                          fontSize: 15,
                           fontWeight: FontWeight.w900,
                         ),
                       ),
                       Text(
-                        'Select condition & confirm pickup landmark for crew',
+                        widget.isMaternal
+                            ? 'Priority L&D Direct-to-Bed Intake • Theater Standby Alert'
+                            : 'Select condition & confirm pickup landmark for crew',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
-                        style: TextStyle(color: Colors.white60, fontSize: 11),
+                        style: const TextStyle(color: Colors.white60, fontSize: 11),
                       ),
                     ],
                   ),
                 ),
               ],
             ),
+            if (widget.isMaternal) ...[
+              const SizedBox(height: 10),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE11D48).withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: const Color(0xFFE11D48).withOpacity(0.3)),
+                ),
+                child: Row(
+                  children: [
+                    const Icon(Icons.local_hospital_rounded, color: Color(0xFFFF8A65), size: 16),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        'Assigned L&D Facility: ${widget.preferredHospital ?? "Nearest Capable Obstetric Center"}',
+                        style: const TextStyle(color: Colors.white, fontSize: 11, fontWeight: FontWeight.w600),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
             const SizedBox(height: 14),
 
             // Verified Address Summary
@@ -1417,9 +1560,9 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
             const SizedBox(height: 14),
 
             // Emergency Types: Balanced 2-Column Grid (All visible at once!)
-            const Text(
-              'SELECT EMERGENCY CONDITION',
-              style: TextStyle(
+            Text(
+              widget.isMaternal ? 'SELECT OBSTETRIC EMERGENCY CONDITION' : 'SELECT EMERGENCY CONDITION',
+              style: const TextStyle(
                 color: Colors.white70,
                 fontSize: 10,
                 fontWeight: FontWeight.bold,
@@ -1437,9 +1580,9 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
               ),
-              itemCount: _quickConditions.length,
+              itemCount: _conditionsList.length,
               itemBuilder: (ctx, idx) {
-                final c = _quickConditions[idx];
+                final c = _conditionsList[idx];
                 final label = c['label'] as String;
                 final title = c['title'] as String;
                 final isSel = label == _selectedCondition;
@@ -1639,7 +1782,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                 ),
                 child: Row(
                   children: [
-                    const Icon(Icons.shield_outlined, color: Colors.redAccent, size: 15),
+                    const Icon(Icons.bloodtype_rounded, color: Colors.redAccent, size: 15),
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
@@ -1670,11 +1813,13 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                 ),
                 onPressed: _confirm,
                 icon: const Icon(Icons.emergency_rounded, size: 22),
-                label: const Text(
-                  'CONFIRM & DISPATCH AMBULANCE NOW',
+                label: Text(
+                  widget.isMaternal
+                      ? 'CONFIRM OBSTETRIC AMBULANCE DISPATCH'
+                      : 'CONFIRM & DISPATCH AMBULANCE NOW',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
+                  style: const TextStyle(
                     fontSize: 13.5,
                     fontWeight: FontWeight.w900,
                     letterSpacing: 0.8,
