@@ -6,6 +6,7 @@ class MemberProfile {
   final bool isPregnant;
   final int? gestationalWeeks;
   final String? edd; // Estimated Due Date
+  final String? lmpDate; // Last Menstrual Period Date
   final String? gravidaPara; // e.g. "G2P1"
   final String? bloodGroup;
   final String? genotype; // "AA", "AS", "SS", etc.
@@ -25,6 +26,7 @@ class MemberProfile {
     this.isPregnant = false,
     this.gestationalWeeks,
     this.edd,
+    this.lmpDate,
     this.gravidaPara,
     this.bloodGroup,
     this.genotype,
@@ -38,6 +40,7 @@ class MemberProfile {
   });
 
   bool get isMaternal => profileType == 'maternal' || isPregnant;
+  String get carePlan => isMaternal ? 'maternal' : 'standard';
 
   /// Robust clinical sanitizer that strips legacy suffixes (e.g. "(Rare Blood Shield)")
   /// and normalizes strictly to canonical medical symbols (O-, O+, A-, A+, B-, B+, AB-, AB+).
@@ -100,21 +103,38 @@ class MemberProfile {
   String get bloodGroupDisplay => cleanBloodGroup.isNotEmpty ? cleanBloodGroup : (bloodGroup ?? 'Not Set');
 
   /// Total human pregnancy duration in obstetrics: 40 weeks = 280 days from LMP.
-  /// Centralized calculation engine: accurately computes elapsed gestational days from EDD if set,
-  /// with seamless fallback to gestationalWeeks * 7, ensuring 100% coherence across all tabs.
+  /// Centralized calculation engine adhering to LAB_PROMPT_maternal_library.md:
+  /// - From LMP: clamp(days_since_lmp / 7, 1, 42)
+  /// - From EDD: clamp(40 - days_until_edd / 7, 1, 42)
+  /// - From gestationalWeeks: clamp(weeks, 1, 42)
+  /// Clamped strictly between 1 and 42 weeks (7 to 294 days).
   int get computedElapsedDays {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    if (lmpDate != null && lmpDate!.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(lmpDate!.trim());
+      if (parsed != null) {
+        final lmpDay = DateTime(parsed.year, parsed.month, parsed.day);
+        final elapsed = today.difference(lmpDay).inDays;
+        return elapsed.clamp(7, 294);
+      }
+    }
+
     if (edd != null && edd!.trim().isNotEmpty) {
       final parsed = DateTime.tryParse(edd!.trim());
       if (parsed != null) {
-        final now = DateTime.now();
-        final daysUntilDue = parsed.difference(DateTime(now.year, now.month, now.day)).inDays;
+        final eddDay = DateTime(parsed.year, parsed.month, parsed.day);
+        final daysUntilDue = eddDay.difference(today).inDays;
         final elapsed = 280 - daysUntilDue;
-        return elapsed.clamp(1, 294); // 1 day to 42 completed weeks
+        return elapsed.clamp(7, 294);
       }
     }
+
     if (gestationalWeeks != null && gestationalWeeks! > 0) {
-      return (gestationalWeeks! * 7).clamp(1, 294);
+      return (gestationalWeeks! * 7).clamp(7, 294);
     }
+
     return 224; // Default clinical baseline: 32 weeks (224 days)
   }
 
@@ -166,7 +186,8 @@ class MemberProfile {
   }
 
   factory MemberProfile.fromMap(Map<String, dynamic> map, String fallbackUserId) {
-    final rawType = (map['profile_type']?.toString() ??
+    final rawType = (map['care_plan']?.toString() ??
+            map['profile_type']?.toString() ??
             map['subscription_tier']?.toString() ??
             map['plan']?.toString() ??
             map['tier']?.toString() ??
@@ -202,6 +223,7 @@ class MemberProfile {
       isPregnant: isPreg,
       gestationalWeeks: (map['gestational_weeks'] as num?)?.toInt(),
       edd: map['edd']?.toString(),
+      lmpDate: map['lmp_date']?.toString() ?? map['lmp']?.toString(),
       gravidaPara: map['gravida_para']?.toString() ?? map['parity']?.toString(),
       bloodGroup: sanitizeBloodGroup(map['blood_group']?.toString()),
       genotype: map['genotype']?.toString(),
@@ -222,9 +244,11 @@ class MemberProfile {
       'display_name': fullName,
       'phone': phone,
       'profile_type': profileType,
+      'care_plan': carePlan,
       'is_pregnant': isPregnant,
       'gestational_weeks': gestationalWeeks,
       'edd': edd,
+      'lmp_date': lmpDate,
       'gravida_para': gravidaPara,
       'blood_group': cleanBloodGroup.isNotEmpty ? cleanBloodGroup : bloodGroup,
       'genotype': genotype,
