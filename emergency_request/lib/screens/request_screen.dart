@@ -58,6 +58,12 @@ class RequestScreenState extends State<RequestScreen>
   String? _profileBloodGroup;
   String? _profileAllergies;
   String? _profileConditions;
+  String? _profilePreferredHospital;
+  String? _profileGenotype;
+  int? _profileGestationalWeeks;
+  String? _profileEdd;
+  String? _profileGravidaPara;
+  bool _profileIsMaternal = false;
 
   Future<void> triggerConditionDispatch(String condition, int priority) async {
     final fix = _fix ?? const LocationFix(latitude: 6.5244, longitude: 3.3792, accuracyMeters: 15);
@@ -165,10 +171,19 @@ class RequestScreenState extends State<RequestScreen>
     try {
       final res = await Supabase.instance.client
           .from('profiles')
-          .select('full_name, phone, age_band, blood_group, allergies, chronic_conditions')
+          .select('full_name, phone, age_band, blood_group, allergies, chronic_conditions, preferred_hospital, profile_type, is_pregnant, gestational_weeks, edd, gravida_para, genotype')
           .eq('user_id', userId)
           .maybeSingle();
       if (res != null && mounted) {
+        final hosp = res['preferred_hospital']?.toString();
+        final cleanHosp = (hosp == null ||
+                hosp.trim().isEmpty ||
+                hosp.toLowerCase().contains('auto-select') ||
+                hosp.toLowerCase().contains('none /') ||
+                hosp.toLowerCase().contains('nearest capable'))
+            ? null
+            : hosp.trim();
+
         setState(() {
           _profileName = res['full_name']?.toString();
           _profilePhone = res['phone']?.toString();
@@ -176,6 +191,13 @@ class RequestScreenState extends State<RequestScreen>
           _profileBloodGroup = res['blood_group']?.toString();
           _profileAllergies = res['allergies']?.toString();
           _profileConditions = res['chronic_conditions']?.toString();
+          _profilePreferredHospital = cleanHosp;
+          _profileGenotype = res['genotype']?.toString();
+          _profileGestationalWeeks = (res['gestational_weeks'] as num?)?.toInt();
+          _profileEdd = res['edd']?.toString();
+          _profileGravidaPara = res['gravida_para']?.toString();
+          final pType = (res['profile_type']?.toString() ?? '').toLowerCase();
+          _profileIsMaternal = res['is_pregnant'] == true || pType.contains('maternal');
         });
       }
     } catch (_) {}
@@ -313,6 +335,20 @@ class RequestScreenState extends State<RequestScreen>
       }
       if (intake.notes != null && intake.notes!.trim().isNotEmpty) {
         notesList.add('Note: ${intake.notes!.trim()}');
+      }
+      if (_profilePreferredHospital != null && _profilePreferredHospital!.isNotEmpty) {
+        notesList.add('[PREFERRED HOSPITAL: $_profilePreferredHospital]');
+      }
+      if (_profileIsMaternal ||
+          intake.condition.toLowerCase().contains('obstetric') ||
+          intake.condition.toLowerCase().contains('labor') ||
+          intake.condition.toLowerCase().contains('maternal')) {
+        final gWeeks = _profileGestationalWeeks != null ? '${_profileGestationalWeeks}w' : 'Active Gestation';
+        final eddStr = (_profileEdd != null && _profileEdd!.isNotEmpty) ? ' | EDD: $_profileEdd' : '';
+        final gpStr = (_profileGravidaPara != null && _profileGravidaPara!.isNotEmpty) ? ' | Parity: $_profileGravidaPara' : '';
+        final bgStr = (_profileBloodGroup != null && _profileBloodGroup != 'Unknown') ? ' | Blood: $_profileBloodGroup' : '';
+        final gtStr = (_profileGenotype != null && _profileGenotype!.isNotEmpty) ? ' | Genotype: $_profileGenotype' : '';
+        notesList.add('[OBSTETRIC SBAR: Gestation: $gWeeks$eddStr$gpStr$bgStr$gtStr]');
       }
       if (_profileBloodGroup != null && _profileBloodGroup != 'Unknown') {
         notesList.add('Blood: $_profileBloodGroup');
