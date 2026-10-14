@@ -600,7 +600,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             value: band['value'],
                             child: Text(band['label']!, style: TextStyle(color: textColor, fontSize: 13)),
                           );
-                        }).toList>,
+                        }).toList(),
                         onChanged: (val) {
                           if (val != null) setState(() => _selectedAgeBand = val);
                         },
