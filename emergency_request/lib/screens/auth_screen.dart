@@ -392,7 +392,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
                   // ── MAIN FORM CARD ───────────────────────────────────────────
                   Container(
-                    padding: const EdgeInsets.all(22),
+                    padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
                     decoration: BoxDecoration(
                       color: cardBg,
                       borderRadius: BorderRadius.circular(22),
@@ -594,7 +594,10 @@ class _AuthScreenState extends State<AuthScreen> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Row(
+                                            Wrap(
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              spacing: 6,
+                                              runSpacing: 2,
                                               children: [
                                                 const Text(
                                                   'Standard Emergency Care',
@@ -603,7 +606,6 @@ class _AuthScreenState extends State<AuthScreen> {
                                                     fontSize: 13,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 6),
                                                 Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                                   decoration: BoxDecoration(
@@ -677,7 +679,10 @@ class _AuthScreenState extends State<AuthScreen> {
                                         child: Column(
                                           crossAxisAlignment: CrossAxisAlignment.start,
                                           children: [
-                                            Row(
+                                            Wrap(
+                                              crossAxisAlignment: WrapCrossAlignment.center,
+                                              spacing: 6,
+                                              runSpacing: 2,
                                               children: [
                                                 const Text(
                                                   'Maternal & Obstetric Care',
@@ -686,7 +691,6 @@ class _AuthScreenState extends State<AuthScreen> {
                                                     fontSize: 13,
                                                   ),
                                                 ),
-                                                const SizedBox(width: 6),
                                                 Container(
                                                   padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1.5),
                                                   decoration: BoxDecoration(
@@ -705,7 +709,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                               ],
                                             ),
                                             Text(
-                                              'Obstetric triage, gestational guidance, daily insights & en-route hospital alert.',
+                                              'Obstetric triage, gestational guidance & en-route hospital alert.',
                                               style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
                                             ),
                                           ],
@@ -898,12 +902,16 @@ class _AuthScreenState extends State<AuthScreen> {
                                         children: [
                                           const Icon(Icons.info_outline, size: 16, color: Color(0xFFEC4899)),
                                           const SizedBox(width: 8),
-                                          Text(
+                                          Expanded(
+                                            child: Text(
                                             'Computed: Week $weeks • ${_getTrimesterLabel(weeks)}',
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
                                               color: Color(0xFFEC4899),
                                               fontWeight: FontWeight.w800,
                                               fontSize: 12,
+                                            ),
                                             ),
                                           ),
                                         ],
