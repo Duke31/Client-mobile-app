@@ -5,11 +5,13 @@ class MemberProfile {
   final String profileType; // 'maternal' | 'standard'
   final bool isPregnant;
   final int? gestationalWeeks;
-  final String? edd; // Estimated Due Date
-  final String? lmpDate; // Last Menstrual Period Date
+  final String? edd; // Estimated Due Date (YYYY-MM-DD)
+  final String? lmpDate; // Last Menstrual Period Date (YYYY-MM-DD)
   final String? gravidaPara; // e.g. "G2P1"
-  final String? bloodGroup;
-  final String? genotype; // "AA", "AS", "SS", etc.
+  final String? bloodGroup; // Plain ABO/Rh symbol: "A+", "O-", etc.
+  final String? genotype; // Optional: "AA", "AS", "SS", etc.
+  final String? dateOfBirth; // ISO date string (YYYY-MM-DD)
+  final String? ageBand; // '0-1', '2-12', '13-17', '18-39', '40-64', '65+'
   final String? preferredHospitalId;
   final String? preferredHospitalName;
   final List<String> knownRisks;
@@ -30,6 +32,8 @@ class MemberProfile {
     this.gravidaPara,
     this.bloodGroup,
     this.genotype,
+    this.dateOfBirth,
+    this.ageBand,
     this.preferredHospitalId,
     this.preferredHospitalName,
     this.knownRisks = const [],
@@ -42,16 +46,50 @@ class MemberProfile {
   bool get isMaternal => profileType == 'maternal' || isPregnant;
   String get carePlan => isMaternal ? 'maternal' : 'standard';
 
-  /// Robust clinical sanitizer that strips legacy suffixes (e.g. "(Rare Blood Shield)")
+  /// Plain ABO/Rh blood groups supported in the clinical emergency network
+  static const List<String> validBloodGroups = [
+    'Unknown',
+    'A+',
+    'A-',
+    'B+',
+    'B-',
+    'AB+',
+    'AB-',
+    'O+',
+    'O-',
+  ];
+
+  /// Standard emergency age bands matching backend constraints
+  static const List<Map<String, String>> ageBandOptions = [
+    {'value': '0-1', 'label': '0–1 yr (Infant)'},
+    {'value': '2-12', 'label': '2–12 yrs (Child)'},
+    {'value': '13-17', 'label': '13–17 yrs (Teen)'},
+    {'value': '18-39', 'label': '18–39 yrs (Adult)'},
+    {'value': '40-64', 'label': '40–64 yrs (Mature)'},
+    {'value': '65+', 'label': '65+ yrs (Senior)'},
+  ];
+
+  /// Common user-declared maternal risk factors (for paramedic awareness, not clinical diagnoses)
+  static const List<String> maternalRiskOptions = [
+    'Previous C-Section',
+    'Gestational Hypertension',
+    'Gestational Diabetes',
+    'Multiple Gestation (Twins)',
+    'History of Pre-Eclampsia',
+    'Previous Preterm Birth',
+    'Anemia in Pregnancy',
+  ];
+
+  /// Robust sanitizer that strips legacy suffixes (e.g. "(Rare Blood Shield)")
   /// and normalizes strictly to canonical medical symbols (O-, O+, A-, A+, B-, B+, AB-, AB+).
   static String sanitizeBloodGroup(String? raw) {
     if (raw == null || raw.trim().isEmpty) return '';
     String cleaned = raw.trim();
-    // Strip parenthesized suffixes like (Rare Blood Shield), (Rare Rh-Negative Reserve), etc.
     cleaned = cleaned.replaceAll(RegExp(r'\(.*?\)', caseSensitive: false), '').trim();
-    // Strip redundant words
-    cleaned = cleaned.replaceAll(RegExp(r'\b(Rare|Blood|Shield|Reserve|Rh-Negative|Rh-Positive|Standard)\b', caseSensitive: false), '').trim();
-    // Match standard ABO/Rh combinations
+    cleaned = cleaned.replaceAll(
+      RegExp(r'\b(Rare|Blood|Shield|Reserve|Rh-Negative|Rh-Positive|Standard|Universal)\b', caseSensitive: false),
+      '',
+    ).trim();
     final match = RegExp(r'^(AB|A|B|O)[\+\-]?$', caseSensitive: false).firstMatch(cleaned);
     if (match != null) {
       return match.group(0)!.toUpperCase();
@@ -63,51 +101,64 @@ class MemberProfile {
       final base = RegExp(r'(AB|A|B|O)', caseSensitive: false).firstMatch(cleaned);
       if (base != null) return '${base.group(0)!.toUpperCase()}+';
     }
-    return cleaned.isNotEmpty ? cleaned : 'O-';
+    return cleaned.isNotEmpty ? cleaned : '';
   }
 
-  /// Cleaned canonical blood group without redundant parenthesized tags (e.g. "O-", "A+")
+  /// Cleaned canonical blood group without marketing suffixes (e.g. "O-", "A+")
   String get cleanBloodGroup => sanitizeBloodGroup(bloodGroup);
 
-  /// Clinical Rhesus status detection: Rh-negative patients require anti-D prophylaxis
-  /// and verified O-Negative emergency blood reserves.
-  bool get isRhesusNegative {
-    final bg = cleanBloodGroup;
-    return bg.contains('-') || bg.toLowerCase().contains('neg');
-  }
+  /// Plain string of blood group for display
+  String get bloodGroupDisplay => cleanBloodGroup.isNotEmpty ? cleanBloodGroup : (bloodGroup ?? 'Unknown');
 
-  /// Backward-compatible alias for rare blood grouping
-  bool get isRareBlood => isRhesusNegative;
-
-  /// Standardized clinical status badge
+  /// Honest clinical status label (plain symbol only)
   String get bloodRhesusStatusLabel {
     final bg = cleanBloodGroup;
-    if (bg.isEmpty) return 'Blood Group Not Logged';
-    if (isRhesusNegative) {
-      return '$bg (Rare Rh-Negative Reserve)';
-    }
-    return '$bg (Universal Rh+ Reserve)';
+    if (bg.isEmpty || bg == 'Unknown') return 'Not Logged';
+    return bg;
   }
 
-  /// Clean one-line display for emergency blood reserve desks
+  /// Clean display for emergency dispatch
   String get emergencyBloodReserveDisplay {
     final bg = cleanBloodGroup;
-    if (bg.isEmpty) return 'Reserve Not Logged';
-    if (isRhesusNegative) {
-      return '$bg • Rare Rh-Negative Reserve';
-    }
-    return '$bg • Universal Reserve';
+    if (bg.isEmpty || bg == 'Unknown') return 'Not Logged';
+    return bg;
   }
 
-  /// Clean string of blood group for display
-  String get bloodGroupDisplay => cleanBloodGroup.isNotEmpty ? cleanBloodGroup : (bloodGroup ?? 'Not Set');
+  /// Derive patient age in complete years from date_of_birth
+  int? get derivedAge {
+    if (dateOfBirth == null || dateOfBirth!.trim().isEmpty) return null;
+    final dob = DateTime.tryParse(dateOfBirth!.trim());
+    if (dob == null) return null;
+    final now = DateTime.now();
+    int age = now.year - dob.year;
+    if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) {
+      age--;
+    }
+    return age >= 0 ? age : null;
+  }
+
+  /// Derive dispatch age band ('0-1', '2-12', '13-17', '18-39', '40-64', '65+')
+  String get effectiveAgeBand {
+    final age = derivedAge;
+    if (age != null) {
+      if (age <= 1) return '0-1';
+      if (age <= 12) return '2-12';
+      if (age <= 17) return '13-17';
+      if (age <= 39) return '18-39';
+      if (age <= 64) return '40-64';
+      return '65+';
+    }
+    if (ageBand != null && ageBand!.trim().isNotEmpty) {
+      return ageBand!.trim();
+    }
+    return '18-39';
+  }
 
   /// Total human pregnancy duration in obstetrics: 40 weeks = 280 days from LMP.
-  /// Centralized calculation engine adhering to LAB_PROMPT_maternal_library.md:
-  /// - From LMP: clamp(days_since_lmp / 7, 1, 42)
-  /// - From EDD: clamp(40 - days_until_edd / 7, 1, 42)
-  /// - From gestationalWeeks: clamp(weeks, 1, 42)
-  /// Clamped strictly between 1 and 42 weeks (7 to 294 days).
+  /// Centralized calculation engine:
+  /// - From LMP: clamp(days_since_lmp, 7, 294)
+  /// - From EDD: clamp(280 - days_until_edd, 7, 294)
+  /// - Fallback: gestationalWeeks * 7 or 224 (32 weeks baseline)
   int get computedElapsedDays {
     final now = DateTime.now();
     final today = DateTime(now.year, now.month, now.day);
@@ -135,7 +186,7 @@ class MemberProfile {
       return (gestationalWeeks! * 7).clamp(7, 294);
     }
 
-    return 224; // Default clinical baseline: 32 weeks (224 days)
+    return 224; // Default clinical baseline: 32 weeks
   }
 
   int get computedWeeks => (computedElapsedDays ~/ 7).clamp(1, 42);
@@ -157,9 +208,9 @@ class MemberProfile {
 
   String get preferredHospitalDisplay {
     if (preferredHospitalName == null || preferredHospitalName!.trim().isEmpty) {
-      return 'Auto-Select (Nearest Capable L&D Hub)';
+      return 'Auto-Select (Nearest Capable Facility)';
     }
-    return preferredHospitalName!.trim();
+    return '${preferredHospitalName!.trim()} (Preference only)';
   }
 
   Map<String, String> get babyFruitComparison {
@@ -227,6 +278,8 @@ class MemberProfile {
       gravidaPara: map['gravida_para']?.toString() ?? map['parity']?.toString(),
       bloodGroup: sanitizeBloodGroup(map['blood_group']?.toString()),
       genotype: map['genotype']?.toString(),
+      dateOfBirth: map['date_of_birth']?.toString() ?? map['dob']?.toString(),
+      ageBand: map['age_band']?.toString(),
       preferredHospitalId: map['preferred_hospital_id']?.toString(),
       preferredHospitalName: cleanHosp,
       knownRisks: parseRisks(map['known_risks']),
@@ -245,16 +298,43 @@ class MemberProfile {
       'phone': phone,
       'profile_type': profileType,
       'care_plan': carePlan,
-      'is_pregnant': isPregnant,
-      'gestational_weeks': gestationalWeeks,
-      'edd': edd,
-      'lmp_date': lmpDate,
-      'gravida_para': gravidaPara,
-      'blood_group': cleanBloodGroup.isNotEmpty ? cleanBloodGroup : bloodGroup,
+      'is_pregnant': isMaternal,
+      'gestational_weeks': isMaternal ? computedWeeks : null,
+      'edd': isMaternal ? edd : null,
+      'lmp_date': isMaternal ? lmpDate : null,
+      'gravida_para': isMaternal ? gravidaPara : null,
+      'blood_group': cleanBloodGroup.isNotEmpty ? cleanBloodGroup : null,
       'genotype': genotype,
+      'date_of_birth': dateOfBirth,
+      'age_band': effectiveAgeBand,
       'preferred_hospital_id': preferredHospitalId,
       'preferred_hospital': preferredHospitalName,
-      'known_risks': knownRisks,
+      'known_risks': isMaternal ? knownRisks : null,
+      'allergies': allergies,
+      'chronic_conditions': chronicConditions,
+      'next_of_kin_name': nextOfKinName,
+      'next_of_kin_phone': nextOfKinPhone,
+    };
+  }
+
+  /// Strictly filtered map containing only columns known to exist in public.profiles table
+  Map<String, dynamic> toProfilesDbMap() {
+    return {
+      'user_id': userId,
+      'display_name': fullName.isNotEmpty ? fullName : 'Solace Member',
+      'full_name': fullName.isNotEmpty ? fullName : 'Solace Member',
+      'phone': phone.isNotEmpty ? phone : null,
+      'role': 'client',
+      'profile_type': isMaternal ? 'maternal' : 'standard',
+      'is_pregnant': isMaternal,
+      'gestational_weeks': isMaternal ? computedWeeks : null,
+      'edd': isMaternal ? edd : null,
+      'gravida_para': isMaternal ? gravidaPara : null,
+      'blood_group': cleanBloodGroup.isNotEmpty ? cleanBloodGroup : null,
+      'genotype': genotype,
+      'age_band': effectiveAgeBand,
+      'preferred_hospital': preferredHospitalName,
+      'known_risks': isMaternal ? knownRisks : null,
       'allergies': allergies,
       'chronic_conditions': chronicConditions,
       'next_of_kin_name': nextOfKinName,
