@@ -563,10 +563,35 @@ class RequestScreenState extends State<RequestScreen>
               ),
               const SizedBox(height: 10),
               const Text(
-                'Data network is weak. Transmit via WhatsApp or SMS directly to Solace Central Operations Desk (+2348133355709).',
+                'Data network is weak. Contact Solace Central Operations Desk directly via Call, WhatsApp, or SMS.',
                 style: TextStyle(color: Colors.white70, fontSize: 13, height: 1.4),
               ),
               const SizedBox(height: 16),
+              FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF10B981),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                onPressed: () async {
+                  Navigator.pop(ctx);
+                  final uri = Uri.parse('tel:+2348133355709');
+                  try {
+                    await launchUrl(uri);
+                  } catch (_) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
+                },
+                icon: const Icon(Icons.phone_in_talk_rounded),
+                label: const Text(
+                  'Call Central Dispatch Desk',
+                  style: TextStyle(fontWeight: FontWeight.bold),
+                ),
+              ),
+              const SizedBox(height: 10),
               FilledButton.icon(
                 style: FilledButton.styleFrom(
                   backgroundColor: const Color(0xFF25D366),
@@ -589,7 +614,7 @@ class RequestScreenState extends State<RequestScreen>
                 },
                 icon: const Icon(Icons.chat_bubble_rounded),
                 label: const Text(
-                  'Send via WhatsApp (+2348133355709)',
+                  'Send via WhatsApp',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -616,7 +641,7 @@ class RequestScreenState extends State<RequestScreen>
                 },
                 icon: const Icon(Icons.sms_outlined),
                 label: const Text(
-                  'Transmit via SMS (+2348133355709)',
+                  'Transmit via SMS',
                   style: TextStyle(fontWeight: FontWeight.bold),
                 ),
               ),
@@ -689,37 +714,33 @@ class RequestScreenState extends State<RequestScreen>
           ],
         ),
         actions: [
-          // Medical ID / Blood Group Badge (Compact & No Overlap)
           Padding(
-            padding: const EdgeInsets.only(right: 12),
-            child: ActionChip(
-              avatar: const Icon(
-                Icons.medical_information_rounded,
-                size: 14,
-                color: Color(0xFF00D4FF),
-              ),
-              label: Text(
-                _profileBloodGroup != null &&
-                        _profileBloodGroup != 'Unknown' &&
-                        _profileBloodGroup!.isNotEmpty
-                    ? '🩸 $_profileBloodGroup'
-                    : 'Medical ID',
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: isDark ? Colors.white : const Color(0xFF0369A1),
-                  fontSize: 11,
-                  fontWeight: FontWeight.bold,
+            padding: const EdgeInsets.only(right: 8),
+            child: IconButton(
+              tooltip: 'Emergency Hotline (+2348133355709)',
+              icon: Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                  shape: BoxShape.circle,
+                  border: Border.all(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.6),
+                    width: 1.2,
+                  ),
+                ),
+                child: const Icon(
+                  Icons.phone_in_talk_rounded,
+                  color: Color(0xFF10B981),
+                  size: 18,
                 ),
               ),
-              backgroundColor: isDark ? const Color(0xFF0D2559) : const Color(0xFFE0F2FE),
-              side: BorderSide(color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7), width: 0.8),
-              padding: const EdgeInsets.symmetric(horizontal: 4),
               onPressed: () async {
-                await Navigator.of(context).push(
-                  MaterialPageRoute<void>(builder: (_) => const ProfileScreen(isStandalone: true)),
-                );
-                _fetchProfileDefaults();
+                final uri = Uri.parse('tel:+2348133355709');
+                try {
+                  await launchUrl(uri);
+                } catch (_) {
+                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                }
               },
             ),
           ),
@@ -1118,9 +1139,50 @@ class RequestScreenState extends State<RequestScreen>
 
                     const SizedBox(height: 10),
 
-                    // Quick WhatsApp & SMS Fallback Bar (Clean High-Contrast Chips)
+                    // Embedded Emergency Line Action Bar (Icon-Driven & Clean)
                     Row(
                       children: [
+                        // Direct Hotline Call
+                        Expanded(
+                          child: Container(
+                            decoration: BoxDecoration(
+                              color: isDark
+                                  ? const Color(0xFF10B981).withValues(alpha: 0.12)
+                                  : const Color(0xFFDCFCE7),
+                              borderRadius: BorderRadius.circular(10),
+                              border: Border.all(
+                                color: isDark
+                                    ? const Color(0xFF10B981).withValues(alpha: 0.35)
+                                    : const Color(0xFF86EFAC),
+                              ),
+                            ),
+                            child: TextButton.icon(
+                              style: TextButton.styleFrom(
+                                foregroundColor: isDark
+                                    ? const Color(0xFF10B981)
+                                    : const Color(0xFF15803D),
+                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
+                              ),
+                              onPressed: () async {
+                                final uri = Uri.parse('tel:+2348133355709');
+                                try {
+                                  await launchUrl(uri);
+                                } catch (_) {
+                                  await launchUrl(uri, mode: LaunchMode.externalApplication);
+                                }
+                              },
+                              icon: const Icon(Icons.phone_in_talk_rounded, size: 15),
+                              label: const Text(
+                                'Call Desk',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
+                              ),
+                            ),
+                          ),
+                        ),
+                        const SizedBox(width: 6),
+                        // WhatsApp SOS
                         Expanded(
                           child: Container(
                             decoration: BoxDecoration(
@@ -1130,7 +1192,7 @@ class RequestScreenState extends State<RequestScreen>
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
                                 color: isDark
-                                    ? const Color(0xFF25D366).withValues(alpha: 0.3)
+                                    ? const Color(0xFF25D366).withValues(alpha: 0.35)
                                     : const Color(0xFF86EFAC),
                               ),
                             ),
@@ -1139,20 +1201,21 @@ class RequestScreenState extends State<RequestScreen>
                                 foregroundColor: isDark
                                     ? const Color(0xFF25D366)
                                     : const Color(0xFF15803D),
-                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
                               ),
                               onPressed: _sendWhatsAppSos,
                               icon: const Icon(Icons.chat_bubble_outline_rounded, size: 15),
                               label: const Text(
-                                'WhatsApp (+2348133355709)',
+                                'WhatsApp',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                               ),
                             ),
                           ),
                         ),
-                        const SizedBox(width: 8),
+                        const SizedBox(width: 6),
+                        // SMS SOS
                         Expanded(
                           child: Container(
                             decoration: BoxDecoration(
@@ -1162,7 +1225,7 @@ class RequestScreenState extends State<RequestScreen>
                               borderRadius: BorderRadius.circular(10),
                               border: Border.all(
                                 color: isDark
-                                    ? const Color(0xFF00D4FF).withValues(alpha: 0.3)
+                                    ? const Color(0xFF00D4FF).withValues(alpha: 0.35)
                                     : const Color(0xFF7DD3FC),
                               ),
                             ),
@@ -1171,15 +1234,15 @@ class RequestScreenState extends State<RequestScreen>
                                 foregroundColor: isDark
                                     ? const Color(0xFF00D4FF)
                                     : const Color(0xFF0369A1),
-                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 4),
+                                padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 2),
                               ),
                               onPressed: _sendSmsSos,
                               icon: const Icon(Icons.sms_rounded, size: 15),
                               label: const Text(
-                                'SMS (+2348133355709)',
+                                'SMS',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
-                                style: TextStyle(fontSize: 10.5, fontWeight: FontWeight.bold),
+                                style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold),
                               ),
                             ),
                           ),
@@ -1550,7 +1613,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                       ),
                       Text(
                         widget.isMaternal
-                            ? 'Priority L&D Direct-to-Bed Intake • Theater Standby Alert'
+                            ? 'Priority L&D Emergency Intake • Theater Standby Alert'
                             : 'Select condition & confirm pickup landmark for crew',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
