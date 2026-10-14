@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
+import '../models/member_profile.dart';
 import 'home_screen.dart';
 
 class AuthScreen extends StatefulWidget {
@@ -29,7 +30,7 @@ class _AuthScreenState extends State<AuthScreen> {
   // Care Plan Onboarding State
   String _selectedPlan = 'standard'; // 'standard' (default) | 'maternal'
   int _gestationalWeeks = 32;
-  String _selectedBloodGroup = 'O-';
+  String _selectedBloodGroup = 'O- (Rare Rh-Negative Reserve)';
   String _selectedGenotype = 'AA';
   String _preferredHospital = 'None / Auto-Select (Nearest Capable Facility)';
 
@@ -42,7 +43,7 @@ class _AuthScreenState extends State<AuthScreen> {
     'AB+',
     'AB-',
     'O+',
-    'O-',
+    'O- (Rare Rh-Negative Reserve)',
   ];
 
   static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];
@@ -108,7 +109,7 @@ class _AuthScreenState extends State<AuthScreen> {
             'edd': isMaternal && _eddController.text.trim().isNotEmpty
                 ? _eddController.text.trim()
                 : null,
-            'blood_group': _selectedBloodGroup != 'Unknown' ? _selectedBloodGroup : null,
+            'blood_group': _selectedBloodGroup != 'Unknown' ? MemberProfile.sanitizeBloodGroup(_selectedBloodGroup) : null,
             'genotype': _selectedGenotype,
             'preferred_hospital': cleanHosp,
           },
@@ -129,7 +130,7 @@ class _AuthScreenState extends State<AuthScreen> {
               'edd': isMaternal && _eddController.text.trim().isNotEmpty
                   ? _eddController.text.trim()
                   : null,
-              'blood_group': _selectedBloodGroup != 'Unknown' ? _selectedBloodGroup : null,
+              'blood_group': _selectedBloodGroup != 'Unknown' ? MemberProfile.sanitizeBloodGroup(_selectedBloodGroup) : null,
               'genotype': _selectedGenotype,
               'preferred_hospital': cleanHosp,
             }, onConflict: 'user_id');
@@ -706,7 +707,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             const SizedBox(height: 14),
                           ],
 
-                          // Blood Group Selection (Rare Blood Shield Support)
+                          // Blood Group Selection (Emergency Blood Reserve Protocol)
                           DropdownButtonFormField<String>(
                             value: _selectedBloodGroup,
                             dropdownColor: cardBg,
