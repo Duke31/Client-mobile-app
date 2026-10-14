@@ -16,30 +16,24 @@ class LocationFix {
   final bool fromCache;
 }
 
-/// High-accuracy GPS engine for Solace emergency medical dispatch.
+/// High-accuracy continuous GPS engine for Solace emergency medical dispatch.
 /// Utilizes Google Play Services Fused Location Provider on Android (GPS + Wi-Fi + Cell triangulation)
-/// to ensure instantaneous indoor and outdoor coordinate acquisition without freezing.
+/// to ensure instantaneous indoor and outdoor coordinate acquisition and uninterrupted live telemetry streaming.
 class LocationService {
   const LocationService();
 
-  /// Continuous live GPS stream for real-time tracking
-  Stream<LocationFix> getPositionStream() {
-    return Geolocator.getPositionStream(
-      locationSettings: _streamSettings(),
-    ).map((pos) => LocationFix(
-      latitude: pos.latitude,
-      longitude: pos.longitude,
-      accuracyMeters: pos.accuracy,
-      fromCache: false,
-    ));
-  }
-
-  LocationSettings _streamSettings() {
+  /// Standardized continuous stream configuration for fused location telemetry.
+  static LocationSettings streamSettings({
+    LocationAccuracy accuracy = LocationAccuracy.high,
+    int intervalMs = 1500,
+    int distanceFilter = 2,
+  }) {
     if (defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        intervalDuration: const Duration(milliseconds: 1000),
-        distanceFilter: 0,
+        accuracy: accuracy,
+        intervalDuration: Duration(milliseconds: intervalMs),
+        distanceFilter: distanceFilter,
+        forceLocationManager: false, // Ensures Google Play Services Fused Location
       );
     }
     if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -47,18 +41,21 @@ class LocationService {
         accuracy: LocationAccuracy.bestForNavigation,
         activityType: ActivityType.otherNavigation,
         pauseLocationUpdatesAutomatically: false,
+        distanceFilter: distanceFilter,
       );
     }
-    return const LocationSettings(
-      accuracy: LocationAccuracy.high,
+    return LocationSettings(
+      accuracy: accuracy,
+      distanceFilter: distanceFilter,
     );
   }
 
-  LocationSettings _oneshotSettings() {
+  static LocationSettings oneshotSettings() {
     if (defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
         accuracy: LocationAccuracy.high,
         timeLimit: const Duration(seconds: 8),
+        forceLocationManager: false,
       );
     }
     if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -91,11 +88,21 @@ class LocationService {
     return null;
   }
 
+  /// Continuous live telemetry stream emitting updated high-accuracy fixes.
+  Stream<LocationFix> get liveStream {
+    return Geolocator.getPositionStream(
+      locationSettings: streamSettings(),
+    ).map((pos) => LocationFix(
+          latitude: pos.latitude,
+          longitude: pos.longitude,
+          accuracyMeters: pos.accuracy,
+        ));
+  }
+
   /// Acquires true high-accuracy fix with multi-tiered fallback.
   Future<LocationFix> current() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
-      // If service is disabled, check if last known position exists
       final cached = await quickEstimate();
       if (cached != null) return cached;
       throw const LocationException(
@@ -120,12 +127,12 @@ class LocationService {
       );
     }
 
-    // Step 1: Check if last known fix is recent (< 30 seconds) and high accuracy (< 20m)
+    // Tier 1: Check if last known fix is recent (< 25 seconds) and high accuracy (< 20m)
     try {
       final last = await Geolocator.getLastKnownPosition();
       if (last != null && last.accuracy <= 20.0) {
         final age = DateTime.now().difference(last.timestamp).inSeconds;
-        if (age < 30) {
+        if (age < 25) {
           return LocationFix(
             latitude: last.latitude,
             longitude: last.longitude,
@@ -136,20 +143,19 @@ class LocationService {
       }
     } catch (_) {}
 
-    // Step 2: Stream GPS updates with fast early-exit when accuracy <= 15m
+    // Tier 2: Stream GPS updates with fast early-exit when accuracy <= 15m
     Position? best;
     final completer = Completer<Position?>();
 
     StreamSubscription<Position>? sub;
     try {
       sub = Geolocator.getPositionStream(
-        locationSettings: _streamSettings(),
+        locationSettings: streamSettings(intervalMs: 1000, distanceFilter: 0),
       ).listen((pos) {
         if (pos.accuracy <= 0) return;
         if (best == null || pos.accuracy < best!.accuracy) {
           best = pos;
         }
-        // Sub-15m building-entrance grade: complete early when GPS converges
         if (pos.accuracy <= 15.0 && !completer.isCompleted) {
           completer.complete(pos);
         }
@@ -160,8 +166,8 @@ class LocationService {
       debugPrint('Failed to start GPS stream: $e');
     }
 
-    // Fast convergence timeout: 4 seconds allows rapid fused triangulation
-    Timer(const Duration(milliseconds: 4000), () {
+    // 3.5s timeout for initial convergence
+    Timer(const Duration(milliseconds: 3500), () {
       if (!completer.isCompleted) completer.complete(best);
     });
 
@@ -178,10 +184,10 @@ class LocationService {
       );
     }
 
-    // Step 3: Direct oneshot query with Fused Location Provider
+    // Tier 3: Direct oneshot query with Fused Location Provider
     try {
       final pos = await Geolocator.getCurrentPosition(
-        locationSettings: _oneshotSettings(),
+        locationSettings: oneshotSettings(),
       );
       return LocationFix(
         latitude: pos.latitude,
@@ -200,7 +206,7 @@ class LocationService {
       );
     }
 
-    // Step 4: Fallback to medium accuracy oneshot
+    // Tier 4: Fallback to medium accuracy oneshot
     try {
       final pos = await Geolocator.getCurrentPosition(
         desiredAccuracy: LocationAccuracy.medium,
@@ -215,7 +221,7 @@ class LocationService {
       debugPrint('getCurrentPosition medium-accuracy fallback notice: $e');
     }
 
-    // Step 5: Fallback to last known position
+    // Tier 5: Fallback to last known position
     try {
       final last = await Geolocator.getLastKnownPosition();
       if (last != null) {
@@ -228,7 +234,7 @@ class LocationService {
       }
     } catch (_) {}
 
-    // Step 6: Safe failover coordinate (Ibadan Central Dispatch anchor) so app never crashes
+    // Tier 6: Centroid default (Ibadan Central Dispatch anchor)
     return const LocationFix(
       latitude: 7.3775,
       longitude: 3.9470,
