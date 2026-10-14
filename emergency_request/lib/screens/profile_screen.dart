@@ -56,7 +56,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
     'AB+',
     'AB-',
     'O+',
-    'O-',
+    'O- (Rare Rh-Negative Reserve)',
   ];
 
   static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];
@@ -147,8 +147,11 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
           final bg = res['blood_group']?.toString();
           if (bg != null) {
-            if (bg.contains('O-')) {
-              _selectedBloodGroup = 'O-';
+            final cleanBg = MemberProfile.sanitizeBloodGroup(bg);
+            if (cleanBg == 'O-') {
+              _selectedBloodGroup = 'O- (Rare Rh-Negative Reserve)';
+            } else if (_bloodGroups.contains(cleanBg)) {
+              _selectedBloodGroup = cleanBg;
             } else if (_bloodGroups.contains(bg)) {
               _selectedBloodGroup = bg;
             }
@@ -213,7 +216,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
         'edd': isMaternal && _eddController.text.trim().isNotEmpty
             ? _eddController.text.trim()
             : null,
-        'blood_group': _selectedBloodGroup != 'Unknown' ? _selectedBloodGroup : null,
+        'blood_group': _selectedBloodGroup != 'Unknown' ? MemberProfile.sanitizeBloodGroup(_selectedBloodGroup) : null,
         'genotype': _selectedGenotype,
         'age_band': _selectedAgeBand,
         'preferred_hospital': (_preferredHospital.contains('Auto-Select') || _preferredHospital.contains('None /'))
