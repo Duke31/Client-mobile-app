@@ -1,4 +1,4 @@
-import '../utils/error_sanitizer.dart';
+﻿import '../utils/error_sanitizer.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -247,19 +247,58 @@ class RequestScreenState extends State<RequestScreen>
             ? null
             : hosp.trim();
 
+        final user = Supabase.instance.client.auth.currentUser;
+        final meta = user?.userMetadata ?? {};
+        final dobStr = meta['date_of_birth']?.toString();
+        String? derivedBand;
+        if (dobStr != null && dobStr.isNotEmpty) {
+          final dob = DateTime.tryParse(dobStr);
+          if (dob != null) {
+            final now = DateTime.now();
+            int age = now.year - dob.year;
+            if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) age--;
+            if (age >= 0) {
+              if (age <= 1) derivedBand = '0-1';
+              else if (age <= 12) derivedBand = '2-12';
+              else if (age <= 17) derivedBand = '13-17';
+              else if (age <= 39) derivedBand = '18-39';
+              else if (age <= 64) derivedBand = '40-64';
+              else derivedBand = '65+';
+            }
+          }
+        }
+
+        final eddVal = res['edd']?.toString() ?? meta['edd']?.toString();
+        final lmpVal = meta['lmp_date']?.toString();
+        int? computedWeeks;
+        if (lmpVal != null && lmpVal.isNotEmpty) {
+          final lmp = DateTime.tryParse(lmpVal);
+          if (lmp != null) {
+            final elapsed = DateTime.now().difference(lmp).inDays;
+            computedWeeks = (elapsed ~/ 7).clamp(1, 42);
+          }
+        }
+        if (computedWeeks == null && eddVal != null && eddVal.isNotEmpty) {
+          final edd = DateTime.tryParse(eddVal);
+          if (edd != null) {
+            final daysUntilDue = edd.difference(DateTime.now()).inDays;
+            computedWeeks = ((280 - daysUntilDue) ~/ 7).clamp(1, 42);
+          }
+        }
+
         setState(() {
-          _profileName = res['full_name']?.toString();
-          _profilePhone = res['phone']?.toString();
-          _profileAgeBand = res['age_band']?.toString();
-          _profileBloodGroup = res['blood_group']?.toString();
-          _profileAllergies = res['allergies']?.toString();
-          _profileConditions = res['chronic_conditions']?.toString();
+          _profileName = res['full_name']?.toString() ?? meta['full_name']?.toString();
+          _profilePhone = res['phone']?.toString() ?? meta['phone']?.toString();
+          _profileAgeBand = widget.initialProfile?.effectiveAgeBand ?? derivedBand ?? res['age_band']?.toString() ?? '18-39';
+          _profileBloodGroup = MemberProfile.sanitizeBloodGroup(res['blood_group']?.toString() ?? meta['blood_group']?.toString());
+          _profileAllergies = res['allergies']?.toString() ?? meta['allergies']?.toString();
+          _profileConditions = res['chronic_conditions']?.toString() ?? meta['chronic_conditions']?.toString();
           _profilePreferredHospital = cleanHosp;
-          _profileGenotype = res['genotype']?.toString();
-          _profileGestationalWeeks = (res['gestational_weeks'] as num?)?.toInt();
-          _profileEdd = res['edd']?.toString();
-          _profileGravidaPara = res['gravida_para']?.toString();
-          final pType = (res['profile_type']?.toString() ?? '').toLowerCase();
+          _profileGenotype = res['genotype']?.toString() ?? meta['genotype']?.toString();
+          _profileGestationalWeeks = computedWeeks ?? widget.initialProfile?.computedWeeks ?? (res['gestational_weeks'] as num?)?.toInt();
+          _profileEdd = eddVal;
+          _profileGravidaPara = res['gravida_para']?.toString() ?? meta['gravida_para']?.toString();
+          final pType = (res['care_plan']?.toString() ?? res['profile_type']?.toString() ?? meta['care_plan']?.toString() ?? '').toLowerCase();
           _profileIsMaternal = res['is_pregnant'] == true || pType.contains('maternal');
         });
       }
@@ -411,7 +450,7 @@ class RequestScreenState extends State<RequestScreen>
         notesList.add('Note: ${intake.notes!.trim()}');
       }
       if (_profilePreferredHospital != null && _profilePreferredHospital!.isNotEmpty) {
-        notesList.add('[PREFERRED HOSPITAL: $_profilePreferredHospital]');
+        notesList.add('[PREFERRED HOSPITAL HINT: $_profilePreferredHospital (preference only, dispatch coordinates assignment)]');
       }
       if (_profileIsMaternal ||
           intake.dbType == 'Obstetric' ||
@@ -430,16 +469,16 @@ class RequestScreenState extends State<RequestScreen>
         final gpStr = (_profileGravidaPara != null && _profileGravidaPara!.isNotEmpty)
             ? ' | Parity: $_profileGravidaPara'
             : (widget.initialProfile?.gravidaPara != null ? ' | Parity: ${widget.initialProfile!.gravidaPara}' : '');
-        final bgStr = (_profileBloodGroup != null && _profileBloodGroup != 'Unknown')
-            ? ' | Blood: $_profileBloodGroup'
-            : (widget.initialProfile?.bloodGroup != null ? ' | Blood: ${widget.initialProfile!.bloodGroup}' : '');
+        final cleanObstetricBg = MemberProfile.sanitizeBloodGroup(_profileBloodGroup ?? widget.initialProfile?.bloodGroup);
+        final bgStr = cleanObstetricBg.isNotEmpty ? ' | Blood: $cleanObstetricBg' : '';
         final gtStr = (_profileGenotype != null && _profileGenotype!.isNotEmpty)
             ? ' | Genotype: $_profileGenotype'
             : '';
         notesList.add('[OBSTETRIC SBAR: Gestation: $gWeeks$eddStr$gpStr$bgStr$gtStr]');
       }
-      if (_profileBloodGroup != null && _profileBloodGroup != 'Unknown') {
-        notesList.add('Blood: $_profileBloodGroup');
+      final cleanGeneralBg = MemberProfile.sanitizeBloodGroup(_profileBloodGroup ?? widget.initialProfile?.bloodGroup);
+      if (cleanGeneralBg.isNotEmpty && cleanGeneralBg != 'Unknown') {
+        notesList.add('Blood: $cleanGeneralBg');
       }
       if (_profileAllergies != null && _profileAllergies!.trim().isNotEmpty) {
         notesList.add('Allergies: $_profileAllergies');
@@ -1144,8 +1183,8 @@ class RequestScreenState extends State<RequestScreen>
                                               ),
                                               Text(
                                                 _profileIsMaternal
-                                                    ? 'Priority L&D Bed • Theater Pre-Alert • En-route Medic'
-                                                    : 'Instant Ambulance • Medic Crew • Hospital Bed',
+                                                    ? 'Obstetric Protocol • En-route Paramedic Triage'
+                                                    : 'Rapid Ambulance Dispatch • En-route Care',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
@@ -1408,16 +1447,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     {'value': '65+', 'label': '65+ yrs (Senior)'},
   ];
 
-  List<Map<String, String>> get _effectiveAgeBandOptions {
-    if (widget.isMaternal) {
-      return const [
-        {'value': '18-39', 'label': '18-39 yrs (Adult Mother)'},
-        {'value': '13-17', 'label': '13-17 yrs (Adolescent)'},
-        {'value': '40-64', 'label': '40-64 yrs (Mature)'},
-      ];
-    }
-    return _ageBandOptions;
-  }
+  List<Map<String, String>> get _effectiveAgeBandOptions => _ageBandOptions;
 
   static const List<Map<String, dynamic>> _maternalConditions = [
     {
@@ -1536,16 +1566,17 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
   void initState() {
     super.initState();
     _phoneController = TextEditingController(text: widget.defaultPhone ?? '');
+    if (widget.defaultAgeBand != null && widget.defaultAgeBand!.trim().isNotEmpty) {
+      _selectedAgeBand = widget.defaultAgeBand!.trim();
+    } else {
+      _selectedAgeBand = '18-39';
+    }
     if (widget.isMaternal) {
       _selectedCondition = 'Active Labor / PROM';
       _priority = 1;
-      _selectedAgeBand = '18-39';
     } else {
       _selectedCondition = 'Accident';
       _priority = 1;
-      if (widget.defaultAgeBand != null && widget.defaultAgeBand!.trim().isNotEmpty) {
-        _selectedAgeBand = widget.defaultAgeBand!.trim();
-      }
     }
   }
 
@@ -1641,7 +1672,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                       ),
                       Text(
                         widget.isMaternal
-                            ? 'Priority L&D Emergency Intake • Theater Standby Alert'
+                            ? 'Obstetric Emergency Triage • En-route Paramedic Assessment'
                             : 'Select condition & confirm pickup landmark for crew',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
@@ -1975,10 +2006,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Attached: Blood Group ${MemberProfile.sanitizeBloodGroup(widget.bloodGroup)}' +
-                            (MemberProfile.sanitizeBloodGroup(widget.bloodGroup).contains('-')
-                                ? ' (Rare Rh-Negative Reserve)'
-                                : ' (Standard Reserve)'),
+                        'Attached: Blood Group ' + MemberProfile.sanitizeBloodGroup(widget.bloodGroup),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.white70, fontSize: 11),
