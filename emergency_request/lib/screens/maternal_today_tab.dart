@@ -15,7 +15,6 @@ class MaternalTodayTab extends StatefulWidget {
   final Function(String condition, int priority)? onTriggerFastPass;
   final Map<String, dynamic>? activeEmergency;
   final VoidCallback? onOpenShieldTab;
-  final VoidCallback? onOpenInsightsTab;
 
   const MaternalTodayTab({
     super.key,
@@ -25,7 +24,6 @@ class MaternalTodayTab extends StatefulWidget {
     this.onTriggerFastPass,
     this.activeEmergency,
     this.onOpenShieldTab,
-    this.onOpenInsightsTab,
   });
 
   @override
@@ -166,6 +164,12 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 // ── 1. Top Header Bar ────────────────────────────────────────
                 _buildTopAppBar(isDark),
                 const SizedBox(height: 14),
+
+                // ── Daily Clinical Tip In-App Notification Banner (Refreshes 8:00 AM) ──
+                if (_unreadAlertCount > 0 && _dailyGuidanceCards.isNotEmpty) ...[
+                  _buildInAppNotificationBanner(isDark),
+                  const SizedBox(height: 14),
+                ],
 
                 // ── 2. Horizontal Weekly Calendar Strip with 'TODAY' Marker ──
                 _buildWeeklyCalendarStrip(isDark),
@@ -336,6 +340,135 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           ],
         ),
       ],
+    );
+  }
+
+  // ── In-App Notification Banner for Daily Clinical Tip (8:00 AM Refresh) ──
+  Widget _buildInAppNotificationBanner(bool isDark) {
+    if (_dailyGuidanceCards.isEmpty) return const SizedBox.shrink();
+    final topItem = _dailyGuidanceCards.firstWhere(
+      (c) => c.isSafety,
+      orElse: () => _dailyGuidanceCards.firstWhere(
+        (c) => c.isTip,
+        orElse: () => _dailyGuidanceCards.first,
+      ),
+    );
+
+    final isSafety = topItem.isSafety;
+    final bannerBg = isSafety
+        ? (isDark ? const Color(0xFF3B1219) : const Color(0xFFFFECEF))
+        : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF0FDF4));
+    final bannerBorder = isSafety
+        ? const Color(0xFFFF334B).withOpacity(0.5)
+        : (isDark ? const Color(0xFF334155) : const Color(0xFFBBF7D0));
+    final tagColor = isSafety ? const Color(0xFFFF334B) : const Color(0xFF16A34A);
+
+    return InkWell(
+      onTap: () => _showNotificationsSheet(context, isDark),
+      borderRadius: BorderRadius.circular(14),
+      child: Container(
+        clipBehavior: Clip.antiAlias,
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        decoration: BoxDecoration(
+          color: bannerBg,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: bannerBorder),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
+              blurRadius: 6,
+              offset: const Offset(0, 2),
+            ),
+          ],
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: tagColor.withOpacity(0.15),
+                shape: BoxShape.circle,
+              ),
+              child: Text(
+                isSafety ? '🚨' : '💡',
+                style: const TextStyle(fontSize: 16),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          isSafety ? 'CRITICAL OBSTETRIC ALERT' : 'DAILY CLINICAL TIP',
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 9.5,
+                            fontWeight: FontWeight.w900,
+                            color: tagColor,
+                            letterSpacing: 0.3,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      Text(
+                        '• 8:00 AM Drop',
+                        style: TextStyle(
+                          fontSize: 9.5,
+                          fontWeight: FontWeight.w500,
+                          color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 2),
+                  Text(
+                    topItem.title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 12.5,
+                      fontWeight: FontWeight.w800,
+                      color: isDark ? Colors.white : const Color(0xFF0F172A),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              decoration: BoxDecoration(
+                color: tagColor.withOpacity(0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    'View',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w800,
+                      color: tagColor,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Icon(
+                    Icons.arrow_forward_ios_rounded,
+                    size: 10,
+                    color: tagColor,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 
@@ -665,7 +798,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'My daily insights • Today',
+              'Pregnancy overview • Today',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
@@ -1285,50 +1418,56 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
 
                   // Header with badge counter & Mark All Read
                   Row(
-                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFF8A65).withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.notifications_active_rounded,
-                              color: Color(0xFFFF8A65),
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Notifications',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  color: textColor,
-                                ),
-                              ),
-                              Text(
-                                _unreadAlertCount > 0
-                                    ? '$_unreadAlertCount new notifications • $nextRefreshDisplay'
-                                    : 'All notifications acknowledged • $nextRefreshDisplay',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ],
+                      Container(
+                        padding: const EdgeInsets.all(7),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFF8A65).withValues(alpha: 0.15),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.notifications_active_rounded,
+                          color: Color(0xFFFF8A65),
+                          size: 20,
+                        ),
                       ),
-                      if (_unreadAlertCount > 0)
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Notifications',
+                              style: TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w900,
+                                color: textColor,
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              _unreadAlertCount > 0
+                                  ? '$_unreadAlertCount new notification • $nextRefreshDisplay'
+                                  : 'All caught up • $nextRefreshDisplay',
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: TextStyle(
+                                fontSize: 11,
+                                fontWeight: FontWeight.w500,
+                                color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (_unreadAlertCount > 0) ...[
+                        const SizedBox(width: 8),
                         TextButton(
+                          style: TextButton.styleFrom(
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                            minimumSize: Size.zero,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
                           onPressed: () {
                             HapticFeedback.selectionClick();
                             _markAlertsAsAcknowledged();
@@ -1343,6 +1482,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                             ),
                           ),
                         ),
+                      ],
                     ],
                   ),
                   const SizedBox(height: 14),
@@ -1354,11 +1494,11 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // 1. Rare Daily Nudge (At most ~1/day, short 1-line snippet with deep link to Insights)
+                          // 1. Standalone Daily Clinical Tip Notification (Full article, 8am cycle)
                           Builder(
                             builder: (context) {
                               if (_dailyGuidanceCards.isEmpty) return const SizedBox.shrink();
-                              final nudgeItem = _dailyGuidanceCards.firstWhere(
+                              final tipItem = _dailyGuidanceCards.firstWhere(
                                 (c) => c.isSafety,
                                 orElse: () => _dailyGuidanceCards.firstWhere(
                                   (c) => c.isTip,
@@ -1367,7 +1507,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                               );
                               return Column(
                                 children: [
-                                  _buildNotificationNudgeTile(nudgeItem, ctx, isDark),
+                                  _buildDailyTipNotificationTile(tipItem, ctx, isDark, setModalState),
                                   const SizedBox(height: 10),
                                 ],
                               );
@@ -1446,34 +1586,36 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  Widget _buildNotificationNudgeTile(
+  Widget _buildDailyTipNotificationTile(
     MaternalContentItem item,
     BuildContext ctx,
     bool isDark,
+    StateSetter setModalState,
   ) {
     final isSafety = item.isSafety;
     final icon = isSafety ? '🚨' : '💡';
     final iconBg = isSafety ? const Color(0xFFFFE4E6) : const Color(0xFFCCFBF1);
     final tagColor = isSafety ? const Color(0xFFE11D48) : const Color(0xFF0D9488);
-
-    // Short 1-line snippet only (Do NOT render full body article)
-    final firstSentence = item.body.split(RegExp(r'(?<=[.!?])\s+')).first;
-    final shortSnippet = firstSentence.length > 95
-        ? '${firstSentence.substring(0, 92)}...'
-        : firstSentence;
+    final tagLabel = isSafety ? 'CRITICAL OBSTETRIC ALERT' : 'DAILY CLINICAL TIP';
 
     return _buildNotificationTile(
       icon: icon,
       iconBg: iconBg,
-      tag: item.slotDisplayLabel,
+      tag: tagLabel,
       tagColor: tagColor,
       title: item.title,
-      body: shortSnippet,
-      time: 'Daily Nudge',
-      actionLabel: 'Read in Insights',
+      body: item.body,
+      time: '8:00 AM Drop',
+      actionLabel: isSafety ? 'Emergency SOS' : 'Acknowledge',
       onAction: () {
-        Navigator.of(ctx).pop();
-        widget.onOpenInsightsTab?.call();
+        if (isSafety) {
+          Navigator.of(ctx).pop();
+          widget.onTriggerSos();
+        } else {
+          HapticFeedback.selectionClick();
+          _markAlertsAsAcknowledged();
+          setModalState(() {});
+        }
       },
       isDark: isDark,
     );
@@ -1576,6 +1718,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     final bodyColor = isDark ? Colors.white70 : const Color(0xFF475569);
 
     return Container(
+      clipBehavior: Clip.antiAlias,
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
@@ -1600,23 +1743,27 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 child: Text(icon, style: const TextStyle(fontSize: 15)),
               ),
               const SizedBox(width: 9),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: tagColor.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  tag,
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w900,
-                    color: tagColor,
-                    letterSpacing: 0.3,
+              Flexible(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: tagColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    tag,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w900,
+                      color: tagColor,
+                      letterSpacing: 0.3,
+                    ),
                   ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 time,
                 style: const TextStyle(fontSize: 10.5, color: Colors.grey, fontWeight: FontWeight.w600),
@@ -1626,8 +1773,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           const SizedBox(height: 8),
           Text(
             title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
+            softWrap: true,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w800,
@@ -1637,6 +1783,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           const SizedBox(height: 4),
           Text(
             body,
+            softWrap: true,
             style: TextStyle(fontSize: 11.5, color: bodyColor, height: 1.35),
           ),
           const SizedBox(height: 8),
