@@ -410,7 +410,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     ),
                   ),
                   Text(
-                    'Direct-to-Bed pre-alert active • Tap to view ETA & Driver Radar',
+                    'Emergency dispatch active • Tap to view ETA & Driver Radar',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.9),
                       fontSize: 11,
@@ -429,8 +429,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
   // ── Centerpiece: Glowing Amniotic Sphere with 3D Baby Render ──────────────
   Widget _buildAmnioticCenterpiece(bool isDark) {
     final sphereSize = MediaQuery.of(context).size.width * 0.76;
-    final isEarly = _weeks < 14;
-    final fetusAsset = isEarly ? 'assets/images/fetus_early.jpg' : 'assets/images/fetus_37_weeks.jpg';
+    const fetusAsset = 'assets/images/fetus_37_weeks.jpg';
 
     return Center(
       child: Container(
@@ -471,7 +470,9 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               Positioned.fill(
                 child: Image.asset(
                   fetusAsset,
+                  key: const ValueKey('maternal_fetus_hero'),
                   fit: BoxFit.cover,
+                  gaplessPlayback: true,
                   errorBuilder: (_, __, ___) => Center(
                     child: Icon(
                       Icons.child_care_rounded,
@@ -912,7 +913,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               _buildDetailMetricRow('Estimated Due Date', widget.profile.edd ?? 'Dec 15, 2026', isDark),
               _buildDetailMetricRow('Clinical Trimester', _trimesterLabel, isDark),
               _buildDetailMetricRow('Baby Size Comparison', '${widget.profile.babyFruitComparison['fruit']} (${widget.profile.babyFruitComparison['weight']})', isDark),
-              _buildDetailMetricRow('Emergency Blood Reserve', widget.profile.emergencyBloodReserveDisplay, isDark),
+              _buildDetailMetricRow('Blood Group', widget.profile.cleanBloodGroup, isDark),
               _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalDisplay, isDark),
               const SizedBox(height: 20),
               FilledButton(
@@ -1143,10 +1144,10 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 child: Column(
                   children: [
                     _buildDetailMetricRow('Gestational Age', '$_weeks Weeks $_days Days', isDark),
-                    _buildDetailMetricRow('Emergency Blood Reserve', widget.profile.emergencyBloodReserveDisplay, isDark),
+                    _buildDetailMetricRow('Blood Group', widget.profile.cleanBloodGroup, isDark),
                     _buildDetailMetricRow('Genotype', widget.profile.genotype ?? 'AA', isDark),
                     _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalDisplay, isDark),
-                    _buildDetailMetricRow('Emergency Phone', widget.profile.phone.isNotEmpty ? widget.profile.phone : '+234 800 SOLACE', isDark),
+                    _buildDetailMetricRow('Emergency Phone', widget.profile.phone.isNotEmpty ? widget.profile.phone : '+2348133355709', isDark),
                   ],
                 ),
               ),
@@ -1286,25 +1287,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // Alert 1: Direct-to-Bed Dispatch Protocol
-                          _buildNotificationTile(
-                            icon: '🚨',
-                            iconBg: Colors.red.shade100,
-                            tag: 'DIRECT-TO-BED DISPATCH',
-                            tagColor: const Color(0xFFEF4444),
-                            title: 'Priority L&D Direct Dispatch Route Armed',
-                            body: 'GPS route mapped to ${widget.profile.preferredHospitalDisplay}. Live rapid response ambulance fleet standby radius < 8 mins.',
-                            time: 'Live 24/7',
-                            actionLabel: 'View Dispatch Desk',
-                            onAction: () {
-                              Navigator.of(ctx).pop();
-                              widget.onTriggerSos();
-                            },
-                            isDark: isDark,
-                          ),
-                          const SizedBox(height: 10),
-
-                          // Alert 2: Gestational Milestone Clinical Alert
+                          // Alert 1: Gestational Milestone Clinical Alert
                           _buildNotificationTile(
                             icon: '🤰',
                             iconBg: const Color(0xFFFFE8DC),
@@ -1324,27 +1307,24 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                           ),
                           const SizedBox(height: 10),
 
-                          // Alert 3: Blood Group & Emergency Blood Reserve
+                          // Alert 2: 24/7 Obstetric Specialist Triage Line
                           _buildNotificationTile(
-                            icon: '🩸',
-                            iconBg: widget.profile.isRhesusNegative
-                                ? Colors.red.shade100
-                                : Colors.purple.shade100,
-                            tag: widget.profile.isRhesusNegative
-                                ? 'RH-NEGATIVE PRE-ALERT'
-                                : 'BLOOD RESERVE VERIFIED',
-                            tagColor: widget.profile.isRhesusNegative
-                                ? const Color(0xFFDC2626)
-                                : const Color(0xFF7C3AED),
-                            title: 'Emergency Blood Reserve: ${widget.profile.cleanBloodGroup} (${widget.profile.isRhesusNegative ? 'Rh-Negative' : 'Rh-Positive'})',
-                            body: widget.profile.isRhesusNegative
-                                ? 'Rare Rh-Negative status flagged for regional hospital blood banks. Zero-delay uncrossmatched O-Neg blood standby enabled.'
-                                : 'Compatible blood reserve verified across partner acute centers for your clinical baseline.',
-                            time: 'Verified',
-                            actionLabel: 'Review Medical ID',
-                            onAction: () {
+                            icon: '📞',
+                            iconBg: const Color(0xFFDCFCE7),
+                            tag: '24/7 OBSTETRIC HOTLINE',
+                            tagColor: const Color(0xFF16A34A),
+                            title: 'Obstetric Specialist Emergency Line',
+                            body: 'Direct verbal triage line with verified obstetric coordinators at Solace Central Desk (+2348133355709).',
+                            time: 'Live 24/7',
+                            actionLabel: 'Call Hotline',
+                            onAction: () async {
                               Navigator.of(ctx).pop();
-                              widget.onOpenShieldTab?.call();
+                              final uri = Uri.parse('tel:+2348133355709');
+                              try {
+                                await launchUrl(uri);
+                              } catch (_) {
+                                await launchUrl(uri, mode: LaunchMode.externalApplication);
+                              }
                             },
                             isDark: isDark,
                           ),
@@ -1578,12 +1558,15 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               ListTile(
                 leading: const Icon(Icons.phone_in_talk_rounded, color: Color(0xFF10B981)),
                 title: const Text('24/7 Obstetric Specialist Triage Line', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
-                subtitle: const Text('Direct verbal handover with emergency midwife', style: TextStyle(fontSize: 11)),
-                onTap: () {
+                subtitle: const Text('Direct verbal handover (+2348133355709)', style: TextStyle(fontSize: 11)),
+                onTap: () async {
                   Navigator.of(ctx).pop();
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Dialing Solace 24/7 Obstetric Triage Line (+234 800 SOLACE)...')),
-                  );
+                  final uri = Uri.parse('tel:+2348133355709');
+                  try {
+                    await launchUrl(uri);
+                  } catch (_) {
+                    await launchUrl(uri, mode: LaunchMode.externalApplication);
+                  }
                 },
               ),
               ListTile(
