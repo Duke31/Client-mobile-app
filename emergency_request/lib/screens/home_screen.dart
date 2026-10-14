@@ -197,7 +197,7 @@ class _HomeScreenState extends State<HomeScreen> {
               ),
               const SizedBox(height: 14),
               Text(
-                'Connecting Solace Shield...',
+                'Connecting Solace EMS...',
                 style: TextStyle(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w600,
@@ -366,9 +366,9 @@ class _HomeScreenState extends State<HomeScreen> {
                   label: 'Records',
                 ),
                 const NavigationDestination(
-                  icon: Icon(Icons.shield_outlined),
-                  selectedIcon: Icon(Icons.shield_rounded),
-                  label: 'My Shield',
+                  icon: Icon(Icons.badge_outlined),
+                  selectedIcon: Icon(Icons.badge_rounded),
+                  label: 'Medical ID',
                 ),
               ],
             ),
@@ -515,9 +515,9 @@ class _HomeScreenState extends State<HomeScreen> {
                 label: 'Records',
               ),
               const NavigationDestination(
-                icon: Icon(Icons.shield_outlined),
-                selectedIcon: Icon(Icons.shield_rounded),
-                label: 'My Shield',
+                icon: Icon(Icons.badge_outlined),
+                selectedIcon: Icon(Icons.badge_rounded),
+                label: 'Medical ID',
               ),
             ],
           ),
