@@ -312,7 +312,98 @@ class LocationService {
       fromCache: true,
     );
   }
+
+  /// Forces a fresh satellite hardware GPS reading, bypassing any cached/stale coordinates.
+  /// Used by the SOS map recenter button to recalibrate whenever the position is offset.
+  Future<LocationFix> forceFreshGps({
+    Duration timeout = const Duration(seconds: 10),
+  }) async {
+    final hasPerm = await ensurePermission();
+    if (!hasPerm) {
+      throw const LocationException('Location permission not granted');
+    }
+
+    final completer = Completer<LocationFix>();
+    Position? best;
+    StreamSubscription<Position>? sub;
+
+    try {
+      final settings = streamSettings(
+        accuracy: LocationAccuracy.bestForNavigation,
+        intervalMs: 500,
+        distanceFilter: 0,
+      );
+
+      sub = Geolocator.getPositionStream(locationSettings: settings).listen(
+        (pos) {
+          if (pos.accuracy <= 0) return;
+          if (best == null || pos.accuracy < best!.accuracy) {
+            best = pos;
+          }
+          // If we achieved sub-15m precision, resolve immediately
+          if (pos.accuracy <= 15.0 && !completer.isCompleted) {
+            sub?.cancel();
+            completer.complete(
+              LocationFix(
+                latitude: pos.latitude,
+                longitude: pos.longitude,
+                fromCache: false,
+                accuracyMeters: pos.accuracy,
+              ),
+            );
+          }
+        },
+        onError: (_) {},
+      );
+
+      Timer(timeout, () {
+        if (!completer.isCompleted) {
+          sub?.cancel();
+          if (best != null) {
+            completer.complete(
+              LocationFix(
+                latitude: best!.latitude,
+                longitude: best!.longitude,
+                fromCache: false,
+                accuracyMeters: best!.accuracy,
+              ),
+            );
+          } else {
+            // Fallback to oneshot best
+            Geolocator.getCurrentPosition(
+              desiredAccuracy: LocationAccuracy.best,
+              timeLimit: const Duration(seconds: 5),
+            ).then((p) {
+              if (!completer.isCompleted) {
+                completer.complete(
+                  LocationFix(
+                    latitude: p.latitude,
+                    longitude: p.longitude,
+                    fromCache: false,
+                    accuracyMeters: p.accuracy,
+                  ),
+                );
+              }
+            }).catchError((_) async {
+              if (!completer.isCompleted) {
+                final fallback = await current();
+                completer.complete(fallback);
+              }
+            });
+          }
+        }
+      });
+    } catch (_) {
+      if (!completer.isCompleted) {
+        final fallback = await current();
+        completer.complete(fallback);
+      }
+    }
+
+    return completer.future;
+  }
 }
+
 
 class LocationException implements Exception {
   const LocationException(this.message);
