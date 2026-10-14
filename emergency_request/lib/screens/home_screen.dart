@@ -12,7 +12,6 @@ import 'profile_screen.dart';
 import 'request_screen.dart';
 import 'submitted_screen.dart';
 import 'maternal_today_tab.dart';
-import 'health_library_tab.dart';
 
 class HomeScreen extends StatefulWidget {
   final int initialIndex;
@@ -219,7 +218,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
 
     // ─────────────────────────────────────────────────────────────────────────
-    // A. MATERNAL CARE SUITE (5 Tabs: Today, SOS/Mission, Insights, Records, Shield)
+    // A. MATERNAL CARE SUITE (4 Tabs: Today, SOS/Mission, Records, Medical ID)
     // ─────────────────────────────────────────────────────────────────────────
     if (isMaternal) {
       final maternalPages = [
@@ -230,8 +229,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onTriggerSos: () => setState(() => _currentIndex = 1),
           onOpenMissionTracker: () => setState(() => _currentIndex = 1),
           onTriggerFastPass: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
-          onOpenShieldTab: () => setState(() => _currentIndex = 4),
-          onOpenInsightsTab: () => setState(() => _currentIndex = 2),
+          onOpenShieldTab: () => setState(() => _currentIndex = 3),
         ),
 
         // Tab 1: SOS Engine or Live Mission Tracker
@@ -271,19 +269,12 @@ class _HomeScreenState extends State<HomeScreen> {
                 },
               ),
 
-        // Tab 2: Health Library & Red Flags
-        HealthLibraryTab(
-          profile: _profile,
-          onDispatchCondition: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
-          onTriggerSos: () => setState(() => _currentIndex = 1),
-        ),
-
-        // Tab 3: History & Reviews
+        // Tab 2: Incident Records & Service History
         HistoryScreen(
           onSwitchToSos: () => setState(() => _currentIndex = 1),
         ),
 
-        // Tab 4: Maternal Shield & Medical ID
+        // Tab 3: Maternal Shield & Medical ID
         ProfileScreen(
           onProfileUpdated: () {
             _fetchProfile();
@@ -339,7 +330,7 @@ class _HomeScreenState extends State<HomeScreen> {
               }),
             ),
             child: NavigationBar(
-              selectedIndex: _currentIndex.clamp(0, 4),
+              selectedIndex: _currentIndex.clamp(0, 3),
               onDestinationSelected: _onTabSelected,
               backgroundColor: navBg,
               elevation: 0,
@@ -363,11 +354,6 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: const Icon(Icons.emergency_rounded, color: Color(0xFFFF334B)),
                   ),
                   label: hasActive ? 'Live Mission' : 'SOS',
-                ),
-                const NavigationDestination(
-                  icon: Icon(Icons.grid_view_outlined),
-                  selectedIcon: Icon(Icons.grid_view_rounded),
-                  label: 'Insights',
                 ),
                 const NavigationDestination(
                   icon: Icon(Icons.history_rounded),
