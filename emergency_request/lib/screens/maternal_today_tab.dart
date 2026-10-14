@@ -912,7 +912,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               _buildDetailMetricRow('Estimated Due Date', widget.profile.edd ?? 'Dec 15, 2026', isDark),
               _buildDetailMetricRow('Clinical Trimester', _trimesterLabel, isDark),
               _buildDetailMetricRow('Baby Size Comparison', '${widget.profile.babyFruitComparison['fruit']} (${widget.profile.babyFruitComparison['weight']})', isDark),
-              _buildDetailMetricRow('Emergency Blood Reserve', widget.profile.bloodRhesusStatusLabel, isDark),
+              _buildDetailMetricRow('Emergency Blood Reserve', widget.profile.emergencyBloodReserveDisplay, isDark),
               _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalDisplay, isDark),
               const SizedBox(height: 20),
               FilledButton(
@@ -934,32 +934,32 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
 
   Widget _buildDetailMetricRow(String label, String value, bool isDark) {
     return Padding(
-      padding: const EdgeInsets.symmetric(vertical: 7),
+      padding: const EdgeInsets.symmetric(vertical: 6),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 4,
+          SizedBox(
+            width: 140,
             child: Text(
               label,
               style: TextStyle(
                 color: isDark ? Colors.white70 : const Color(0xFF64748B),
-                fontSize: 13,
+                fontSize: 12.5,
                 fontWeight: FontWeight.w500,
               ),
             ),
           ),
           const SizedBox(width: 8),
           Expanded(
-            flex: 6,
             child: Text(
               value,
               textAlign: TextAlign.end,
               style: TextStyle(
                 color: isDark ? Colors.white : const Color(0xFF0F172A),
-                fontSize: 13,
-                fontWeight: FontWeight.bold,
+                fontSize: 12.5,
+                fontWeight: FontWeight.w700,
               ),
+              softWrap: true,
             ),
           ),
         ],
@@ -1143,7 +1143,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 child: Column(
                   children: [
                     _buildDetailMetricRow('Gestational Age', '$_weeks Weeks $_days Days', isDark),
-                    _buildDetailMetricRow('Emergency Blood Reserve', widget.profile.bloodRhesusStatusLabel, isDark),
+                    _buildDetailMetricRow('Emergency Blood Reserve', widget.profile.emergencyBloodReserveDisplay, isDark),
                     _buildDetailMetricRow('Genotype', widget.profile.genotype ?? 'AA', isDark),
                     _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalDisplay, isDark),
                     _buildDetailMetricRow('Emergency Phone', widget.profile.phone.isNotEmpty ? widget.profile.phone : '+234 800 SOLACE', isDark),
@@ -1336,7 +1336,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                             tagColor: widget.profile.isRhesusNegative
                                 ? const Color(0xFFDC2626)
                                 : const Color(0xFF7C3AED),
-                            title: 'Emergency Blood Reserve: ${widget.profile.bloodRhesusStatusLabel}',
+                            title: 'Emergency Blood Reserve: ${widget.profile.cleanBloodGroup} (${widget.profile.isRhesusNegative ? 'Rh-Negative' : 'Rh-Positive'})',
                             body: widget.profile.isRhesusNegative
                                 ? 'Rare Rh-Negative status flagged for regional hospital blood banks. Zero-delay uncrossmatched O-Neg blood standby enabled.'
                                 : 'Compatible blood reserve verified across partner acute centers for your clinical baseline.',
