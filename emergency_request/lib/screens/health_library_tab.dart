@@ -51,6 +51,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
   // Daily maternal wellness counters
   int _fetalKicksToday = 0;
   int _waterGlassesToday = 0;
+  int _sleepHoursToday = 8;
   bool _vitaminsTakenToday = false;
 
   // Real saved records map keyed by YYYY-MM-DD
@@ -144,11 +145,13 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
       _todayMoodScore = (todayRec['mood'] as num?)?.toInt() ?? 0;
       _fetalKicksToday = (todayRec['kicks'] as num?)?.toInt() ?? 0;
       _waterGlassesToday = (todayRec['water'] as num?)?.toInt() ?? 0;
+      _sleepHoursToday = (todayRec['sleep'] as num?)?.toInt() ?? 8;
       _vitaminsTakenToday = todayRec['vitamins'] == true;
     } else {
       _todayMoodScore = 0;
       _fetalKicksToday = 0;
       _waterGlassesToday = 0;
+      _sleepHoursToday = 8;
       _vitaminsTakenToday = false;
     }
     _recordsLoaded = true;
@@ -177,7 +180,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     });
   }
 
-  Future<void> _saveCheckin({int? mood, int? kicks, int? water, bool? vitamins}) async {
+  Future<void> _saveCheckin({int? mood, int? kicks, int? water, int? sleep, bool? vitamins}) async {
     HapticFeedback.mediumImpact();
     final now = DateTime.now();
     final todayKey = _dateKey(now);
@@ -187,6 +190,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
       'mood': mood ?? _todayMoodScore,
       'kicks': kicks ?? _fetalKicksToday,
       'water': water ?? _waterGlassesToday,
+      'sleep': sleep ?? _sleepHoursToday,
       'vitamins': vitamins ?? _vitaminsTakenToday,
       'timestamp': DateTime.now().toIso8601String(),
     };
@@ -196,6 +200,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
       if (mood != null) _todayMoodScore = mood;
       if (kicks != null) _fetalKicksToday = kicks;
       if (water != null) _waterGlassesToday = water;
+      if (sleep != null) _sleepHoursToday = sleep;
       if (vitamins != null) _vitaminsTakenToday = vitamins;
       _buildWeekData();
     });
@@ -301,6 +306,58 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
             const SizedBox(height: 16),
 
             if (_currentMode == _InsightMode.wellnessTracker) ...[
+              if (widget.profile != null && widget.profile!.isMaternal) ...[
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFF7ED),
+                    borderRadius: BorderRadius.circular(16),
+                    border: Border.all(
+                      color: const Color(0xFFFF8A65).withOpacity(0.35),
+                    ),
+                  ),
+                  child: Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFFF8A65),
+                          shape: BoxShape.circle,
+                        ),
+                        child: Text(
+                          widget.profile!.babyFruitComparison['icon'] ?? '👶',
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Week ${widget.profile!.computedWeeks}, Day ${widget.profile!.computedDays} • ${widget.profile!.trimesterLabel}',
+                              style: TextStyle(
+                                fontSize: 12.5,
+                                fontWeight: FontWeight.w900,
+                                color: textColor,
+                              ),
+                            ),
+                            Text(
+                              'Baby size: ${widget.profile!.babyFruitComparison['fruit']} (${widget.profile!.babyFruitComparison['weight']}) • Day ${widget.profile!.pregnancyDay} of 280',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 14),
+              ],
+
               // ── 1. Daily Emotion Check-In (Image 5 & Image 3) ────────────
               _buildDailyCheckInCard(cardBg, cardBorder, textColor, isDark),
               const SizedBox(height: 16),
@@ -366,9 +423,9 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                     const Text('✨', style: TextStyle(fontSize: 14)),
                     const SizedBox(width: 6),
                     Text(
-                      'Daily Wellness',
+                      'Daily Wellness & Biometrics',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11.5,
                         fontWeight: FontWeight.w800,
                         color: _currentMode == _InsightMode.wellnessTracker
                             ? const Color(0xFFFF8A65)
@@ -407,12 +464,12 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('🚨', style: TextStyle(fontSize: 14)),
+                    const Text('⚠️', style: TextStyle(fontSize: 14)),
                     const SizedBox(width: 6),
                     Text(
-                      'Red Flags & SOS',
+                      'Obstetric Danger Signs & Protocols',
                       style: TextStyle(
-                        fontSize: 12,
+                        fontSize: 11,
                         fontWeight: FontWeight.w800,
                         color: _currentMode == _InsightMode.clinicalRedFlags
                             ? const Color(0xFFEF4444)
@@ -766,122 +823,174 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
         ),
         const SizedBox(height: 10),
 
-        // Two Hero Impact Cards (Positive vs Negative)
-        Row(
-          children: [
-            // Positive Card
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: cardBg,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFF22C55E).withOpacity(0.3)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Text('💧', style: TextStyle(fontSize: 18)),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFF22C55E).withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text(
-                            'POSITIVE',
-                            style: TextStyle(
-                              color: Color(0xFF16A34A),
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Hydration',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: textColor,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      '$_waterGlassesToday/8 glasses logged\nMost positive impact on energy',
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
+        // Two Hero Impact Cards (Dynamic Clinical Determinants for Hydration & Sleep)
+        Builder(
+          builder: (context) {
+            // Dynamic Hydration Formula
+            final String waterTag;
+            final Color waterTagColor;
+            final String waterTitle;
+            final String waterDesc;
+            if (_waterGlassesToday < 4) {
+              waterTag = 'DEFICIT';
+              waterTagColor = const Color(0xFFE11D48);
+              waterTitle = 'Hydration Deficit';
+              waterDesc = '$_waterGlassesToday/8 glasses. Low amniotic index risk & cramping. Drink 4+ more glasses today.';
+            } else if (_waterGlassesToday < 8) {
+              waterTag = 'SUB-OPTIMAL';
+              waterTagColor = const Color(0xFFD97706);
+              waterTitle = 'Moderate Hydration';
+              waterDesc = '$_waterGlassesToday/8 glasses. ${8 - _waterGlassesToday} more glasses needed to reach 8-glass daily goal (2.5L).';
+            } else {
+              waterTag = 'OPTIMAL';
+              waterTagColor = const Color(0xFF16A34A);
+              waterTitle = 'Optimal Hydration';
+              waterDesc = '$_waterGlassesToday/8 glasses logged. Amniotic fluid volume & maternal circulation well supported.';
+            }
 
-            // Negative / Attention Card
-            Expanded(
-              child: Container(
-                padding: const EdgeInsets.all(14),
-                decoration: BoxDecoration(
-                  color: cardBg,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: const Color(0xFFF43F5E).withOpacity(0.3)),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
+            // Dynamic Sleep Formula
+            final String sleepTag;
+            final Color sleepTagColor;
+            final String sleepTitle;
+            final String sleepDesc;
+            if (_sleepHoursToday < 6) {
+              sleepTag = 'FATIGUE';
+              sleepTagColor = const Color(0xFFE11D48);
+              sleepTitle = 'Sleep Debt / Fatigue';
+              sleepDesc = '$_sleepHoursToday hrs logged. Elevates cortisol & vascular resistance. Rest in left-lateral position.';
+            } else if (_sleepHoursToday < 8) {
+              sleepTag = 'MODERATE';
+              sleepTagColor = const Color(0xFFD97706);
+              sleepTitle = 'Moderate Rest';
+              sleepDesc = '$_sleepHoursToday hrs logged. Target 8-9h in late gestation. Plan a 30-min afternoon nap.';
+            } else {
+              sleepTag = 'RESTORATIVE';
+              sleepTagColor = const Color(0xFF16A34A);
+              sleepTitle = 'Restorative Sleep';
+              sleepDesc = '$_sleepHoursToday hrs logged. Optimal cellular repair & uterine-placental blood perfusion.';
+            }
+
+            return Row(
+              children: [
+                // Dynamic Hydration Card
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: waterTagColor.withOpacity(0.35), width: 1.2),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        const Text('💤', style: TextStyle(fontSize: 18)),
-                        const Spacer(),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
-                          decoration: BoxDecoration(
-                            color: const Color(0xFFF43F5E).withOpacity(0.15),
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          child: const Text(
-                            'ATTENTION',
-                            style: TextStyle(
-                              color: Color(0xFFE11D48),
-                              fontSize: 9,
-                              fontWeight: FontWeight.w900,
+                        Row(
+                          children: [
+                            const Text('💧', style: TextStyle(fontSize: 18)),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: waterTagColor.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                waterTag,
+                                style: TextStyle(
+                                  color: waterTagColor,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
                             ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          waterTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: textColor,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          waterDesc,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                            height: 1.3,
                           ),
                         ),
                       ],
                     ),
-                    const SizedBox(height: 8),
-                    Text(
-                      'Rest & Sleep',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w800,
-                        color: textColor,
-                      ),
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      'Lower back strain reported\nRecommended: elevate feet & rest',
-                      style: TextStyle(
-                        fontSize: 10.5,
-                        color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                        height: 1.3,
-                      ),
-                    ),
-                  ],
+                  ),
                 ),
-              ),
-            ),
-          ],
+                const SizedBox(width: 12),
+
+                // Dynamic Sleep Card
+                Expanded(
+                  child: Container(
+                    padding: const EdgeInsets.all(14),
+                    decoration: BoxDecoration(
+                      color: cardBg,
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: sleepTagColor.withOpacity(0.35), width: 1.2),
+                    ),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Row(
+                          children: [
+                            const Text('💤', style: TextStyle(fontSize: 18)),
+                            const Spacer(),
+                            Container(
+                              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                              decoration: BoxDecoration(
+                                color: sleepTagColor.withOpacity(0.15),
+                                borderRadius: BorderRadius.circular(6),
+                              ),
+                              child: Text(
+                                sleepTag,
+                                style: TextStyle(
+                                  color: sleepTagColor,
+                                  fontSize: 9,
+                                  fontWeight: FontWeight.w900,
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          sleepTitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w800,
+                            color: textColor,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          sleepDesc,
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                            height: 1.3,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ],
+            );
+          },
         ),
         const SizedBox(height: 12),
 
@@ -961,6 +1070,44 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                     icon: const Icon(Icons.add_circle_outline_rounded, size: 22, color: Color(0xFF00B0FF)),
                     onPressed: () {
                       _saveCheckin(water: _waterGlassesToday + 1);
+                    },
+                  ),
+                ],
+              ),
+              const Divider(height: 14),
+
+              // Rest & Sleep Counter
+              Row(
+                children: [
+                  const Text('💤', style: TextStyle(fontSize: 20)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text('Rest & Sleep (Hours)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor)),
+                        Text('8-9 hours optimal in late gestation', style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white54 : const Color(0xFF64748B))),
+                      ],
+                    ),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.remove_circle_outline_rounded, size: 22),
+                    onPressed: () {
+                      if (_sleepHoursToday > 4) {
+                        _saveCheckin(sleep: _sleepHoursToday - 1);
+                      }
+                    },
+                  ),
+                  Text(
+                    '$_sleepHoursToday hrs',
+                    style: TextStyle(fontSize: 14, fontWeight: FontWeight.w900, color: textColor),
+                  ),
+                  IconButton(
+                    icon: const Icon(Icons.add_circle_outline_rounded, size: 22, color: Color(0xFF8B5CF6)),
+                    onPressed: () {
+                      if (_sleepHoursToday < 14) {
+                        _saveCheckin(sleep: _sleepHoursToday + 1);
+                      }
                     },
                   ),
                 ],
