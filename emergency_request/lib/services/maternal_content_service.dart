@@ -13,19 +13,72 @@ class MaternalContentService {
   /// Official educational disclaimer required on all clinical content cards.
   static const String educationalDisclaimer = kMaternalEducationDisclaimer;
 
+  /// Clinical 8:00 AM Daily Cycle Anchor:
+  /// Content refreshes daily at 8:00 AM.
+  /// If current time is before 8:00 AM, the cycle belongs to yesterday's 8:00 AM drop.
+  static DateTime getClinicalCycleDate([DateTime? target]) {
+    final now = target ?? DateTime.now();
+    if (now.hour < 8) {
+      final yesterday = now.subtract(const Duration(days: 1));
+      return DateTime(yesterday.year, yesterday.month, yesterday.day, 8, 0, 0);
+    } else {
+      return DateTime(now.year, now.month, now.day, 8, 0, 0);
+    }
+  }
+
+  /// Exact timestamp of the next 8:00 AM content refresh.
+  static DateTime getNextClinicalCycleRefresh([DateTime? target]) {
+    final now = target ?? DateTime.now();
+    if (now.hour < 8) {
+      return DateTime(now.year, now.month, now.day, 8, 0, 0);
+    } else {
+      final tomorrow = now.add(const Duration(days: 1));
+      return DateTime(tomorrow.year, tomorrow.month, tomorrow.day, 8, 0, 0);
+    }
+  }
+
+  /// Unique daily cycle key for tracking unread status (e.g. "cycle_2026-10-14_08am").
+  static String getClinicalCycleKey([DateTime? target]) {
+    final c = getClinicalCycleDate(target);
+    final m = c.month.toString().padLeft(2, '0');
+    final d = c.day.toString().padLeft(2, '0');
+    return 'cycle_${c.year}-${m}-${d}_08am';
+  }
+
+  /// Clinical weekday corresponding to the active 8:00 AM drop (0=Sunday, 1=Monday, ..., 6=Saturday).
+  static int getClinicalCycleWeekday([DateTime? target]) {
+    final c = getClinicalCycleDate(target);
+    return c.weekday % 7;
+  }
+
+  /// Human-readable next refresh label.
+  static String getNextRefreshDisplay([DateTime? target]) {
+    final now = target ?? DateTime.now();
+    final next = getNextClinicalCycleRefresh(now);
+    final diff = next.difference(now);
+    if (diff.inHours > 0) {
+      return 'Refreshes in ${diff.inHours}h ${diff.inMinutes % 60}m (8:00 AM)';
+    } else if (diff.inMinutes > 0) {
+      return 'Refreshes in ${diff.inMinutes}m (8:00 AM)';
+    } else {
+      return 'Refreshes at 8:00 AM';
+    }
+  }
+
   /// Fetch the 3-card daily stack for maternal care patients:
   /// 1. Safety Alert Card (urgent clinical warning signs with SOS CTA)
   /// 2. Daily Clinical Tip Card (gestational progress & recommendations)
   /// 3. Secondary Card (nutrition, comfort, prepare, mind, or review)
   ///
+  /// Content is synchronized to the 8:00 AM daily refresh cycle.
   /// Strictly checks active status and clamps gestational week to [1, 42].
-  /// Weekday mapping: 0 = Sunday, 1 = Monday, ..., 6 = Saturday.
   Future<List<MaternalContentItem>> getDailyGuidanceCards({
     required int gestationalWeek,
     int? weekday,
   }) async {
     final clampedWeek = gestationalWeek.clamp(1, 42);
-    final todayWeekday = weekday ?? (DateTime.now().weekday % 7);
+    // Align to the 8:00 AM clinical cycle weekday by default
+    final todayWeekday = weekday ?? getClinicalCycleWeekday();
 
     // 1. Attempt live fetch from Supabase table `maternal_content`
     try {
@@ -86,7 +139,6 @@ class MaternalContentService {
       slotFilter: (s) => s == 'safety',
       todayWeekday: todayWeekday,
     );
-    // Broad fallback if candidate list had no safety item for today's weekday
     safety ??= _pickFallbackCard(
       allItems: allItems,
       gestationalWeek: clampedWeek,
@@ -135,7 +187,6 @@ class MaternalContentService {
     if (matching.isEmpty) return null;
 
     matching.sort((a, b) {
-      // Prioritize explicit weekday match over null weekday
       final aDayMatch = a.weekday == todayWeekday ? 0 : 1;
       final bDayMatch = b.weekday == todayWeekday ? 0 : 1;
       if (aDayMatch != bDayMatch) return aDayMatch.compareTo(bDayMatch);
