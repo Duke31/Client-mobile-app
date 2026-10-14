@@ -271,6 +271,7 @@ class _HomeScreenState extends State<HomeScreen> {
         HealthLibraryTab(
           profile: _profile,
           onDispatchCondition: (cond, prio) => _dispatchConditionFromOtherTab(cond, prio),
+          onTriggerSos: () => setState(() => _currentIndex = 1),
         ),
 
         // Tab 3: History & Reviews
@@ -357,7 +358,7 @@ class _HomeScreenState extends State<HomeScreen> {
                     smallSize: 8,
                     child: const Icon(Icons.emergency_rounded, color: Color(0xFFFF334B)),
                   ),
-                  label: hasActive ? 'Live Mission' : 'SOS Engine',
+                  label: hasActive ? 'Live Mission' : 'SOS',
                 ),
                 const NavigationDestination(
                   icon: Icon(Icons.grid_view_outlined),
