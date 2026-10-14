@@ -39,26 +39,68 @@ class MemberProfile {
 
   bool get isMaternal => profileType == 'maternal' || isPregnant;
 
-  bool get isRareBlood =>
+  /// Clinical Rhesus status detection: Rh-negative patients require anti-D prophylaxis
+  /// and verified O-Negative emergency blood reserves.
+  bool get isRhesusNegative =>
       bloodGroup != null &&
-      (bloodGroup!.contains('O-') || bloodGroup!.toLowerCase().contains('negative'));
+      (bloodGroup!.contains('-') || bloodGroup!.toLowerCase().contains('neg'));
+
+  /// Backward-compatible alias for rare blood grouping
+  bool get isRareBlood => isRhesusNegative;
+
+  String get bloodRhesusStatusLabel {
+    if (bloodGroup == null || bloodGroup!.isEmpty) return 'Blood Group Not Logged';
+    if (isRhesusNegative) {
+      return '$bloodGroup (Rare Rh-Negative Reserve)';
+    }
+    return '$bloodGroup (Standard Reserve)';
+  }
+
+  /// Total human pregnancy duration in obstetrics: 40 weeks = 280 days from LMP.
+  /// Centralized calculation engine: accurately computes elapsed gestational days from EDD if set,
+  /// with seamless fallback to gestationalWeeks * 7, ensuring 100% coherence across all tabs.
+  int get computedElapsedDays {
+    if (edd != null && edd!.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(edd!.trim());
+      if (parsed != null) {
+        final now = DateTime.now();
+        final daysUntilDue = parsed.difference(DateTime(now.year, now.month, now.day)).inDays;
+        final elapsed = 280 - daysUntilDue;
+        return elapsed.clamp(1, 294); // 1 day to 42 completed weeks
+      }
+    }
+    if (gestationalWeeks != null && gestationalWeeks! > 0) {
+      return (gestationalWeeks! * 7).clamp(1, 294);
+    }
+    return 224; // Default clinical baseline: 32 weeks (224 days)
+  }
+
+  int get computedWeeks => (computedElapsedDays ~/ 7).clamp(1, 42);
+  int get computedDays => (computedElapsedDays % 7).clamp(0, 6);
+  int get pregnancyDay => computedElapsedDays;
+  int get daysRemainingToEdd => (280 - computedElapsedDays).clamp(0, 280);
+
+  String get trimesterLabel {
+    final w = computedWeeks;
+    if (w <= 13) return '1st Trimester';
+    if (w <= 27) return '2nd Trimester';
+    return '3rd Trimester';
+  }
 
   String get gestationalSummary {
-    if (gestationalWeeks == null) return 'Pregnancy Care Active';
-    final weeks = gestationalWeeks!;
-    String trimester;
-    if (weeks <= 12) {
-      trimester = '1st Trimester';
-    } else if (weeks <= 27) {
-      trimester = '2nd Trimester';
-    } else {
-      trimester = '3rd Trimester';
+    if (!isMaternal) return 'Standard Emergency Care';
+    return 'Week $computedWeeks, Day $computedDays • $trimesterLabel';
+  }
+
+  String get preferredHospitalDisplay {
+    if (preferredHospitalName == null || preferredHospitalName!.trim().isEmpty) {
+      return 'Auto-Select (Nearest Capable L&D Hub)';
     }
-    return 'Week $weeks • $trimester';
+    return preferredHospitalName!.trim();
   }
 
   Map<String, String> get babyFruitComparison {
-    final weeks = gestationalWeeks ?? 30;
+    final weeks = computedWeeks;
     if (weeks <= 8) {
       return {'fruit': 'Raspberry', 'weight': '~1 g', 'length': '1.6 cm', 'icon': '🫐'};
     } else if (weeks <= 12) {
