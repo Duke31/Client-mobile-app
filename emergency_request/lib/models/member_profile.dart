@@ -39,30 +39,65 @@ class MemberProfile {
 
   bool get isMaternal => profileType == 'maternal' || isPregnant;
 
+  /// Robust clinical sanitizer that strips legacy suffixes (e.g. "(Rare Blood Shield)")
+  /// and normalizes strictly to canonical medical symbols (O-, O+, A-, A+, B-, B+, AB-, AB+).
+  static String sanitizeBloodGroup(String? raw) {
+    if (raw == null || raw.trim().isEmpty) return '';
+    String cleaned = raw.trim();
+    // Strip parenthesized suffixes like (Rare Blood Shield), (Rare Rh-Negative Reserve), etc.
+    cleaned = cleaned.replaceAll(RegExp(r'\(.*?\)', caseSensitive: false), '').trim();
+    // Strip redundant words
+    cleaned = cleaned.replaceAll(RegExp(r'\b(Rare|Blood|Shield|Reserve|Rh-Negative|Rh-Positive|Standard)\b', caseSensitive: false), '').trim();
+    // Match standard ABO/Rh combinations
+    final match = RegExp(r'^(AB|A|B|O)[\+\-]?$', caseSensitive: false).firstMatch(cleaned);
+    if (match != null) {
+      return match.group(0)!.toUpperCase();
+    }
+    if (cleaned.contains('-') || cleaned.toLowerCase().contains('neg')) {
+      final base = RegExp(r'(AB|A|B|O)', caseSensitive: false).firstMatch(cleaned);
+      if (base != null) return '${base.group(0)!.toUpperCase()}-';
+    } else if (cleaned.contains('+') || cleaned.toLowerCase().contains('pos')) {
+      final base = RegExp(r'(AB|A|B|O)', caseSensitive: false).firstMatch(cleaned);
+      if (base != null) return '${base.group(0)!.toUpperCase()}+';
+    }
+    return cleaned.isNotEmpty ? cleaned : 'O-';
+  }
+
+  /// Cleaned canonical blood group without redundant parenthesized tags (e.g. "O-", "A+")
+  String get cleanBloodGroup => sanitizeBloodGroup(bloodGroup);
+
   /// Clinical Rhesus status detection: Rh-negative patients require anti-D prophylaxis
   /// and verified O-Negative emergency blood reserves.
-  bool get isRhesusNegative =>
-      bloodGroup != null &&
-      (bloodGroup!.contains('-') || bloodGroup!.toLowerCase().contains('neg'));
+  bool get isRhesusNegative {
+    final bg = cleanBloodGroup;
+    return bg.contains('-') || bg.toLowerCase().contains('neg');
+  }
 
   /// Backward-compatible alias for rare blood grouping
   bool get isRareBlood => isRhesusNegative;
 
-  String get cleanBloodGroup {
-    if (bloodGroup == null || bloodGroup!.trim().isEmpty) return 'Not Logged';
-    String clean = bloodGroup!.trim();
-    clean = clean.replaceAll(RegExp(r'\s*\(.*?\)', caseSensitive: false), '').trim();
-    return clean.isEmpty ? bloodGroup!.trim() : clean;
-  }
-
+  /// Standardized clinical status badge
   String get bloodRhesusStatusLabel {
     final bg = cleanBloodGroup;
-    if (bg == 'Not Logged') return 'Blood Group Not Logged';
+    if (bg.isEmpty) return 'Blood Group Not Logged';
     if (isRhesusNegative) {
-      return '$bg (Rh-Negative Reserve)';
+      return '$bg (Rare Rh-Negative Reserve)';
     }
-    return '$bg (Standard Reserve)';
+    return '$bg (Universal Rh+ Reserve)';
   }
+
+  /// Clean one-line display for emergency blood reserve desks
+  String get emergencyBloodReserveDisplay {
+    final bg = cleanBloodGroup;
+    if (bg.isEmpty) return 'Reserve Not Logged';
+    if (isRhesusNegative) {
+      return '$bg • Rare Rh-Negative Reserve';
+    }
+    return '$bg • Universal Reserve';
+  }
+
+  /// Clean string of blood group for display
+  String get bloodGroupDisplay => cleanBloodGroup.isNotEmpty ? cleanBloodGroup : (bloodGroup ?? 'Not Set');
 
   /// Total human pregnancy duration in obstetrics: 40 weeks = 280 days from LMP.
   /// Centralized calculation engine: accurately computes elapsed gestational days from EDD if set,
@@ -168,7 +203,7 @@ class MemberProfile {
       gestationalWeeks: (map['gestational_weeks'] as num?)?.toInt(),
       edd: map['edd']?.toString(),
       gravidaPara: map['gravida_para']?.toString() ?? map['parity']?.toString(),
-      bloodGroup: map['blood_group']?.toString(),
+      bloodGroup: sanitizeBloodGroup(map['blood_group']?.toString()),
       genotype: map['genotype']?.toString(),
       preferredHospitalId: map['preferred_hospital_id']?.toString(),
       preferredHospitalName: cleanHosp,
@@ -191,7 +226,7 @@ class MemberProfile {
       'gestational_weeks': gestationalWeeks,
       'edd': edd,
       'gravida_para': gravidaPara,
-      'blood_group': bloodGroup,
+      'blood_group': cleanBloodGroup.isNotEmpty ? cleanBloodGroup : bloodGroup,
       'genotype': genotype,
       'preferred_hospital_id': preferredHospitalId,
       'preferred_hospital': preferredHospitalName,
