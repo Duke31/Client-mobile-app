@@ -81,9 +81,14 @@ class MemberProfile {
   }
 
   factory MemberProfile.fromMap(Map<String, dynamic> map, String fallbackUserId) {
-    final pType = (map['profile_type']?.toString() ??
-        (map['is_pregnant'] == true ? 'maternal' : 'standard')).toLowerCase();
-    final isPreg = map['is_pregnant'] == true || pType == 'maternal';
+    final rawType = (map['profile_type']?.toString() ??
+            map['subscription_tier']?.toString() ??
+            map['plan']?.toString() ??
+            map['tier']?.toString() ??
+            '')
+        .toLowerCase();
+    final isPreg = map['is_pregnant'] == true || rawType.contains('maternal');
+    final pType = isPreg ? 'maternal' : 'standard';
 
     List<String> parseRisks(dynamic raw) {
       if (raw == null) return [];
@@ -93,6 +98,16 @@ class MemberProfile {
       }
       return [];
     }
+
+    final rawHosp = map['preferred_hospital']?.toString() ??
+        map['preferred_hospital_name']?.toString();
+    final cleanHosp = (rawHosp == null ||
+            rawHosp.trim().isEmpty ||
+            rawHosp.toLowerCase().contains('auto-select') ||
+            rawHosp.toLowerCase().contains('none /') ||
+            rawHosp.toLowerCase().contains('nearest capable'))
+        ? null
+        : rawHosp.trim();
 
     return MemberProfile(
       userId: map['user_id']?.toString() ?? fallbackUserId,
@@ -106,8 +121,7 @@ class MemberProfile {
       bloodGroup: map['blood_group']?.toString(),
       genotype: map['genotype']?.toString(),
       preferredHospitalId: map['preferred_hospital_id']?.toString(),
-      preferredHospitalName: map['preferred_hospital']?.toString() ??
-          map['preferred_hospital_name']?.toString(),
+      preferredHospitalName: cleanHosp,
       knownRisks: parseRisks(map['known_risks']),
       allergies: map['allergies']?.toString(),
       chronicConditions: map['chronic_conditions']?.toString(),
