@@ -29,7 +29,7 @@ class _AuthScreenState extends State<AuthScreen> {
   // Care Plan Onboarding State
   String _selectedPlan = 'standard'; // 'standard' (default) | 'maternal'
   int _gestationalWeeks = 32;
-  String _selectedBloodGroup = 'O- (Rare Blood Shield)';
+  String _selectedBloodGroup = 'O- (Rare Rh-Negative Reserve)';
   String _selectedGenotype = 'AA';
   String _preferredHospital = 'None / Auto-Select (Nearest Capable Facility)';
 
@@ -42,7 +42,7 @@ class _AuthScreenState extends State<AuthScreen> {
     'AB+',
     'AB-',
     'O+',
-    'O- (Rare Blood Shield)',
+    'O- (Rare Rh-Negative Reserve)',
   ];
 
   static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];
@@ -511,7 +511,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                             Row(
                                               children: [
                                                 const Text(
-                                                  'Standard Emergency Shield',
+                                                  'Standard Emergency Care Plan',
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.w800,
                                                     fontSize: 13,
@@ -621,7 +621,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                               ],
                                             ),
                                             Text(
-                                              'Gestational tracking, daily wellness insights, labor pre-alert & rare blood shield.',
+                                              'Gestational tracking, daily wellness insights, labor pre-alert & emergency blood reserve.',
                                               style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
                                             ),
                                           ],
@@ -825,9 +825,9 @@ class _AuthScreenState extends State<AuthScreen> {
                                 : Text(
                                     _isSignUp
                                         ? (_selectedPlan == 'maternal'
-                                            ? 'ACTIVATE MATERNAL SHIELD'
-                                            : 'ACTIVATE EMERGENCY SHIELD')
-                                        : 'SIGN IN TO SOLACE SHIELD',
+                                            ? 'ACTIVATE MATERNAL CARE PLAN'
+                                            : 'ACTIVATE EMERGENCY ACCESS')
+                                        : 'SIGN IN TO SOLACE EMS',
                                     style: const TextStyle(
                                       fontWeight: FontWeight.w900,
                                       fontSize: 13,
