@@ -1,17 +1,22 @@
+import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/member_profile.dart';
+import '../models/maternal_content_item.dart';
+import '../services/maternal_content_service.dart';
 import '../theme/app_theme.dart';
 
 class HealthLibraryTab extends StatefulWidget {
   final Function(String condition, int priority) onDispatchCondition;
   final MemberProfile? profile;
+  final VoidCallback? onTriggerSos;
 
   const HealthLibraryTab({
     super.key,
     required this.onDispatchCondition,
     this.profile,
+    this.onTriggerSos,
   });
 
   @override
@@ -41,6 +46,8 @@ class _DailyMoodRecord {
 
 class _HealthLibraryTabState extends State<HealthLibraryTab> {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final MaternalContentService _contentService = MaternalContentService();
+
   _InsightMode _currentMode = _InsightMode.wellnessTracker;
   _ChartViewMode _chartMode = _ChartViewMode.capsuleBars;
 
@@ -53,6 +60,10 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
   int _waterGlassesToday = 0;
   int _sleepHoursToday = 8;
   bool _vitaminsTakenToday = false;
+
+  // Canonical Daily Clinical Tip loaded from single source library
+  List<MaternalContentItem> _dailyGuidanceCards = [];
+  bool _loadingGuidance = true;
 
   // Real saved records map keyed by YYYY-MM-DD
   final Map<String, Map<String, dynamic>> _savedDailyRecords = {};
@@ -101,6 +112,34 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     _selectedDayIndex = DateTime.now().weekday - 1;
     _buildWeekData();
     _loadSavedRecords();
+    _loadDailyTip();
+  }
+
+  @override
+  void didUpdateWidget(covariant HealthLibraryTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile?.computedWeeks != widget.profile?.computedWeeks) {
+      _loadDailyTip();
+    }
+  }
+
+  Future<void> _loadDailyTip() async {
+    final weeks = widget.profile?.computedWeeks ?? 28;
+    try {
+      final cards = await _contentService.getDailyGuidanceCards(
+        gestationalWeek: weeks,
+      );
+      if (mounted) {
+        setState(() {
+          _dailyGuidanceCards = cards;
+          _loadingGuidance = false;
+        });
+      }
+    } catch (_) {
+      if (mounted) {
+        setState(() => _loadingGuidance = false);
+      }
+    }
   }
 
   Future<void> _loadSavedRecords() async {
@@ -185,7 +224,6 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     final now = DateTime.now();
     final todayKey = _dateKey(now);
 
-    final existing = _savedDailyRecords[todayKey] ?? {};
     final updated = {
       'mood': mood ?? _todayMoodScore,
       'kicks': kicks ?? _fetalKicksToday,
@@ -220,6 +258,18 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
       await _supabase.from('profiles').update({
         'maternal_records': _savedDailyRecords,
       }).eq('user_id', uid);
+
+      // Upsert into maternal_wellness_logs with owner-only RLS
+      await _supabase.from('maternal_wellness_logs').upsert({
+        'user_id': uid,
+        'log_date': todayKey,
+        'mood_score': mood ?? _todayMoodScore,
+        'kicks_count': kicks ?? _fetalKicksToday,
+        'water_glasses': water ?? _waterGlassesToday,
+        'sleep_hours': sleep ?? _sleepHoursToday,
+        'vitamins_taken': vitamins ?? _vitaminsTakenToday,
+        'updated_at': DateTime.now().toIso8601String(),
+      });
     } catch (_) {}
   }
 
@@ -270,17 +320,45 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
         title: Text(
           _currentMode == _InsightMode.wellnessTracker
               ? 'Maternal Wellness & Insights'
-              : 'Clinical Danger Signs & Red Flags',
+              : 'Danger Protocols & Red Flags',
           style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 16),
         ),
         backgroundColor: cardBg,
         elevation: 0,
         actions: [
+          // Emergency SOS Action (Patient-facing, always reachable from Insights)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+            child: FilledButton.icon(
+              style: FilledButton.styleFrom(
+                backgroundColor: const Color(0xFFDC2626),
+                foregroundColor: Colors.white,
+                padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 0),
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                elevation: 0,
+              ),
+              onPressed: () {
+                HapticFeedback.heavyImpact();
+                if (widget.onTriggerSos != null) {
+                  widget.onTriggerSos!();
+                } else {
+                  widget.onDispatchCondition('OBSTETRIC_EMERGENCY', 1);
+                }
+              },
+              icon: const Icon(Icons.emergency_rounded, size: 14),
+              label: const Text(
+                'SOS',
+                style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.w900),
+              ),
+            ),
+          ),
           IconButton(
             tooltip: 'Toggle View',
             icon: Icon(
               _currentMode == _InsightMode.wellnessTracker
-                  ? Icons.local_hospital_outlined
+                  ? Icons.warning_amber_rounded
                   : Icons.auto_graph_rounded,
               color: const Color(0xFFFF8A65),
             ),
@@ -303,78 +381,40 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
           children: [
             // ── Top Segmented Mode Switcher ────────────────────────────────
             _buildModeSwitcher(isDark),
-            const SizedBox(height: 16),
+            const SizedBox(height: 14),
 
             if (_currentMode == _InsightMode.wellnessTracker) ...[
+              // Week / Baby Size Header
               if (widget.profile != null && widget.profile!.isMaternal) ...[
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-                  decoration: BoxDecoration(
-                    color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFF7ED),
-                    borderRadius: BorderRadius.circular(16),
-                    border: Border.all(
-                      color: const Color(0xFFFF8A65).withOpacity(0.35),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.all(6),
-                        decoration: const BoxDecoration(
-                          color: Color(0xFFFF8A65),
-                          shape: BoxShape.circle,
-                        ),
-                        child: Text(
-                          widget.profile!.babyFruitComparison['icon'] ?? '👶',
-                          style: const TextStyle(fontSize: 14),
-                        ),
-                      ),
-                      const SizedBox(width: 10),
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              'Week ${widget.profile!.computedWeeks}, Day ${widget.profile!.computedDays} • ${widget.profile!.trimesterLabel}',
-                              style: TextStyle(
-                                fontSize: 12.5,
-                                fontWeight: FontWeight.w900,
-                                color: textColor,
-                              ),
-                            ),
-                            Text(
-                              'Baby size: ${widget.profile!.babyFruitComparison['fruit']} (${widget.profile!.babyFruitComparison['weight']}) • Day ${widget.profile!.pregnancyDay} of 280',
-                              style: TextStyle(
-                                fontSize: 10.5,
-                                color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+                _buildWeekProgressHeader(cardBg, textColor, isDark),
                 const SizedBox(height: 14),
               ],
 
-              // ── 1. Daily Emotion Check-In (Image 5 & Image 3) ────────────
+              // ── "When to get help" Row (Points to Danger Protocols) ───────
+              _buildWhenToGetHelpRow(cardBg, textColor, isDark),
+              const SizedBox(height: 14),
+
+              // ── Canonical Read: Today's Clinical Tip & Library Guidance ────
+              _buildCanonicalTipSection(cardBg, cardBorder, textColor, isDark),
+              const SizedBox(height: 16),
+
+              // ── 1. Daily Emotion Check-In ─────────────────────────────────
               _buildDailyCheckInCard(cardBg, cardBorder, textColor, isDark),
               const SizedBox(height: 16),
 
-              // ── 2. Weekly Insights Capsule Bar Chart (Image 4 & Image 5) ─
+              // ── 2. Weekly Insights Capsule Bar Chart (Last 7 Days) ────────
               _buildWeeklyInsightsChartCard(cardBg, cardBorder, textColor, isDark),
               const SizedBox(height: 16),
 
-              // ── 3. Daily Influences & Factors (Image 4 & Image 5) ────────
+              // ── 3. Today's Habits (Progress vs Goal, Zero Fabricated Risk) ─
               _buildDailyInfluencesSection(cardBg, cardBorder, textColor, isDark),
               const SizedBox(height: 16),
 
-              // ── 4. Monthly Behaviour & Emotion Calendar (Image 3) ────────
+              // ── 4. Monthly Behaviour & Emotion Calendar ───────────────────
               _buildMonthlyCalendarCard(cardBg, cardBorder, textColor, isDark),
               const SizedBox(height: 20),
             ] else ...[
-              // ── Clinical Danger Signs & Emergency Pre-Alert Desk ─────────
+              // ── Danger Protocols: Clinical Red Flags & Emergency Dispatch ──
               _buildClinicalRedFlagsList(cardBg, cardBorder, textColor, isDark),
             ],
           ],
@@ -469,7 +509,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('⚠️', style: TextStyle(fontSize: 13)),
+                    const Text('🚨', style: TextStyle(fontSize: 13)),
                     const SizedBox(width: 5),
                     Flexible(
                       child: FittedBox(
@@ -480,7 +520,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                             fontSize: 11.5,
                             fontWeight: FontWeight.w800,
                             color: _currentMode == _InsightMode.clinicalRedFlags
-                                ? const Color(0xFFEF4444)
+                                ? const Color(0xFFDC2626)
                                 : (isDark ? Colors.white60 : const Color(0xFF64748B)),
                           ),
                         ),
@@ -496,130 +536,117 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     );
   }
 
-  // ── 1. Daily Check-In Card (Matching Image 5) ──────────────────────────────
-  Widget _buildDailyCheckInCard(Color cardBg, Color cardBorder, Color textColor, bool isDark) {
+  // ── Week Progress Header ───────────────────────────────────────────────────
+  Widget _buildWeekProgressHeader(Color cardBg, Color textColor, bool isDark) {
     return Container(
-      padding: const EdgeInsets.all(18),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
       decoration: BoxDecoration(
-        color: cardBg,
-        borderRadius: BorderRadius.circular(22),
-        border: Border.all(color: cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
+        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFF7ED),
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFFFF8A65).withOpacity(0.35),
+        ),
       ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+      child: Row(
         children: [
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFF8A65).withOpacity(0.15),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: const Text(
-                  '5TH CHECK-IN • TODAY',
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: FontWeight.w900,
-                    color: Color(0xFFD84315),
-                    letterSpacing: 0.6,
-                  ),
-                ),
-              ),
-              Text(
-                'Updated just now',
-                style: TextStyle(
-                  fontSize: 11,
-                  color: isDark ? Colors.white54 : const Color(0xFF94A3B8),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 12),
-          Text(
-            'How are you today?',
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w900,
-              color: textColor,
-              letterSpacing: -0.2,
+          Container(
+            padding: const EdgeInsets.all(6),
+            decoration: const BoxDecoration(
+              color: Color(0xFFFF8A65),
+              shape: BoxShape.circle,
+            ),
+            child: Text(
+              widget.profile!.babyFruitComparison['icon'] ?? '👶',
+              style: const TextStyle(fontSize: 14),
             ),
           ),
-          const SizedBox(height: 16),
-
-          // 5 Emotion Face Buttons: Proportionally fitted inside card bounds
-          Row(
-            children: [
-              Expanded(child: _buildEmotionButton(1, 'Awful', '😫', const Color(0xFF8B5CF6), isDark)),
-              const SizedBox(width: 4),
-              Expanded(child: _buildEmotionButton(2, 'Bad', '😔', const Color(0xFF38BDF8), isDark)),
-              const SizedBox(width: 4),
-              Expanded(child: _buildEmotionButton(3, 'Okay', '😐', const Color(0xFFFACC15), isDark)),
-              const SizedBox(width: 4),
-              Expanded(child: _buildEmotionButton(4, 'Good', '🙂', const Color(0xFF4ADE80), isDark)),
-              const SizedBox(width: 4),
-              Expanded(child: _buildEmotionButton(5, 'Great', '😄', const Color(0xFF22C55E), isDark)),
-            ],
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Week ${widget.profile!.computedWeeks}, Day ${widget.profile!.computedDays} • ${widget.profile!.trimesterLabel}',
+                  style: TextStyle(
+                    fontSize: 12.5,
+                    fontWeight: FontWeight.w900,
+                    color: textColor,
+                  ),
+                ),
+                Text(
+                  'Baby size: ${widget.profile!.babyFruitComparison['fruit']} (${widget.profile!.babyFruitComparison['weight']}) • Day ${widget.profile!.pregnancyDay} of 280',
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                  ),
+                ),
+              ],
+            ),
           ),
         ],
       ),
     );
   }
 
-  Widget _buildEmotionButton(int score, String label, String emoji, Color color, bool isDark) {
-    final isSelected = _todayMoodScore == score;
+  // ── "When to get help" Row ─────────────────────────────────────────────────
+  Widget _buildWhenToGetHelpRow(Color cardBg, Color textColor, bool isDark) {
     return InkWell(
-      onTap: () => _saveCheckin(mood: score),
-      borderRadius: BorderRadius.circular(14),
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 200),
-        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 7),
+      onTap: () {
+        HapticFeedback.mediumImpact();
+        setState(() => _currentMode = _InsightMode.clinicalRedFlags);
+      },
+      borderRadius: BorderRadius.circular(16),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
         decoration: BoxDecoration(
-          color: isSelected
-              ? color.withOpacity(0.18)
-              : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC)),
-          borderRadius: BorderRadius.circular(14),
+          color: isDark ? const Color(0xFF261214) : const Color(0xFFFFF1F2),
+          borderRadius: BorderRadius.circular(16),
           border: Border.all(
-            color: isSelected ? color : Colors.transparent,
-            width: isSelected ? 2.0 : 1.0,
+            color: isDark ? const Color(0xFF881337) : const Color(0xFFFDA4AF),
+            width: 1.2,
           ),
         ),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
+        child: Row(
           children: [
             Container(
-              width: 36,
-              height: 36,
+              padding: const EdgeInsets.all(6),
               decoration: BoxDecoration(
-                color: isSelected ? color : color.withOpacity(0.2),
+                color: const Color(0xFFE11D48).withOpacity(0.15),
                 shape: BoxShape.circle,
               ),
-              child: Center(
-                child: Text(
-                  emoji,
-                  style: const TextStyle(fontSize: 19),
-                ),
+              child: const Icon(
+                Icons.warning_amber_rounded,
+                color: Color(0xFFE11D48),
+                size: 18,
               ),
             ),
-            const SizedBox(height: 5),
-            FittedBox(
-              fit: BoxFit.scaleDown,
-              child: Text(
-                label,
-                style: TextStyle(
-                  fontSize: 10.5,
-                  fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
-                  color: isSelected ? color : (isDark ? Colors.white70 : const Color(0xFF64748B)),
-                ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                    'When to get help',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w800,
+                      color: Color(0xFFE11D48),
+                    ),
+                  ),
+                  Text(
+                    'Bleeding, fluid leak, reduced movements, severe headache → Danger Protocols',
+                    style: TextStyle(
+                      fontSize: 10.5,
+                      color: isDark ? Colors.white70 : const Color(0xFF475569),
+                    ),
+                  ),
+                ],
               ),
+            ),
+            const Icon(
+              Icons.arrow_forward_ios_rounded,
+              color: Color(0xFFE11D48),
+              size: 13,
             ),
           ],
         ),
@@ -627,21 +654,221 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     );
   }
 
-  // ── 2. Weekly Insights Capsule Bar Chart (Matching Image 4) ────────────────
-  Widget _buildWeeklyInsightsChartCard(Color cardBg, Color cardBorder, Color textColor, bool isDark) {
+  // ── Canonical Read: Today's Clinical Guidance (Single Source Library) ─────
+  Widget _buildCanonicalTipSection(Color cardBg, Color cardBorder, Color textColor, bool isDark) {
+    if (_loadingGuidance) {
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color: cardBg,
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: cardBorder),
+        ),
+        child: const Center(
+          child: CircularProgressIndicator(strokeWidth: 2, valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF8A65))),
+        ),
+      );
+    }
+
+    if (_dailyGuidanceCards.isEmpty) return const SizedBox.shrink();
+
+    // Prefer 1 tip; if safety matches today, show safety first or alongside tip
+    final safetyCard = _dailyGuidanceCards.where((c) => c.isSafety).firstOrNull;
+    final tipCard = _dailyGuidanceCards.where((c) => c.isTip).firstOrNull ?? _dailyGuidanceCards.firstOrNull;
+
+    final cardsToShow = <MaternalContentItem>[];
+    if (safetyCard != null) cardsToShow.add(safetyCard);
+    if (tipCard != null && tipCard != safetyCard) cardsToShow.add(tipCard);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Row(
+          children: [
+            const Icon(Icons.menu_book_rounded, size: 16, color: Color(0xFFFF8A65)),
+            const SizedBox(width: 6),
+            Text(
+              "Today's Guidance",
+              style: TextStyle(
+                fontSize: 15,
+                fontWeight: FontWeight.w800,
+                color: textColor,
+              ),
+            ),
+            const Spacer(),
+            Text(
+              'Week ${widget.profile?.computedWeeks ?? 28} Protocol',
+              style: TextStyle(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: isDark ? Colors.white54 : const Color(0xFF64748B),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 10),
+
+        for (final item in cardsToShow) ...[
+          _buildFullTipCard(item, cardBg, textColor, isDark),
+          const SizedBox(height: 10),
+        ],
+
+        // Educational Disclaimer Container
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: cardBorder),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Icon(Icons.info_outline_rounded, size: 14, color: Color(0xFF64748B)),
+              ),
+              const SizedBox(width: 6),
+              Expanded(
+                child: Text(
+                  MaternalContentService.educationalDisclaimer,
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                    height: 1.3,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildFullTipCard(MaternalContentItem item, Color cardBg, Color textColor, bool isDark) {
+    final isSafety = item.isSafety;
+    final bg = isSafety
+        ? (isDark ? const Color(0xFF261214) : const Color(0xFFFFF1F2))
+        : cardBg;
+    final border = isSafety
+        ? (isDark ? const Color(0xFF881337) : const Color(0xFFFDA4AF))
+        : (isDark ? AppTheme.darkCardBorder : const Color(0xFFE2E8F0));
+    final tagBg = isSafety
+        ? const Color(0xFFE11D48).withOpacity(0.15)
+        : const Color(0xFF0D9488).withOpacity(0.12);
+    final tagColor = isSafety ? const Color(0xFFE11D48) : const Color(0xFF0D9488);
+
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: border, width: isSafety ? 1.4 : 1.0),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: tagBg,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(isSafety ? Icons.warning_amber_rounded : Icons.lightbulb_outline_rounded, size: 12, color: tagColor),
+                    const SizedBox(width: 4),
+                    Text(
+                      item.slotDisplayLabel,
+                      style: TextStyle(
+                        color: tagColor,
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.w900,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              if (item.weekday != null)
+                Text(
+                  _weekdayName(item.weekday!),
+                  style: TextStyle(fontSize: 10, color: isDark ? Colors.white38 : const Color(0xFF94A3B8)),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Text(
+            item.title,
+            style: TextStyle(
+              fontSize: 14.5,
+              fontWeight: FontWeight.w800,
+              color: textColor,
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            item.body,
+            style: TextStyle(
+              fontSize: 12,
+              height: 1.45,
+              color: isDark ? Colors.white70 : const Color(0xFF334155),
+            ),
+          ),
+          if (item.ctaType != 'none' && item.ctaLabel != null && item.ctaLabel!.isNotEmpty) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                style: FilledButton.styleFrom(
+                  backgroundColor: isSafety ? const Color(0xFFE11D48) : const Color(0xFF0F172A),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                ),
+                onPressed: () {
+                  HapticFeedback.heavyImpact();
+                  if (item.ctaType == 'sos' || item.ctaType == 'red_flag') {
+                    if (widget.onTriggerSos != null) {
+                      widget.onTriggerSos!();
+                    } else {
+                      widget.onDispatchCondition('OBSTETRIC_EMERGENCY', 1);
+                    }
+                  } else if (item.ctaType == 'profile') {
+                    // Profile/Medical ID action
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      const SnackBar(content: Text('Open Medical ID tab to review emergency card')),
+                    );
+                  }
+                },
+                icon: Icon(isSafety ? Icons.emergency_rounded : Icons.arrow_forward_rounded, size: 16),
+                label: Text(
+                  item.ctaLabel!,
+                  style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                ),
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── 1. Daily Emotion Check-In ──────────────────────────────────────────────
+  Widget _buildDailyCheckInCard(Color cardBg, Color cardBorder, Color textColor, bool isDark) {
+    final subText = isDark ? Colors.white60 : const Color(0xFF64748B);
+
     return Container(
       padding: const EdgeInsets.all(18),
       decoration: BoxDecoration(
         color: cardBg,
         borderRadius: BorderRadius.circular(22),
         border: Border.all(color: cardBorder),
-        boxShadow: [
-          BoxShadow(
-            color: Colors.black.withOpacity(isDark ? 0.2 : 0.04),
-            blurRadius: 10,
-            offset: const Offset(0, 3),
-          ),
-        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -649,68 +876,225 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Your Weekly Insights',
-                    style: TextStyle(
-                      fontSize: 16,
-                      fontWeight: FontWeight.w800,
-                      color: textColor,
+              Text(
+                'How are you feeling today?',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: textColor,
+                ),
+              ),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  _todayMoodScore > 0 ? _getMoodLabel(_todayMoodScore) : 'Not logged',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.bold,
+                    color: _todayMoodScore > 0 ? _getMoodColor(_todayMoodScore) : subText,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 6),
+          Text(
+            'One log per day. Track changes across your week.',
+            style: TextStyle(fontSize: 11, color: subText),
+          ),
+          const SizedBox(height: 16),
+
+          // 5 Mood Emoji Buttons
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: List.generate(5, (index) {
+              final score = index + 1;
+              final isSelected = _todayMoodScore == score;
+              final emoji = _getMoodEmoji(score);
+              final label = _getMoodLabel(score);
+              final moodCol = _getMoodColor(score);
+
+              return Expanded(
+                child: GestureDetector(
+                  onTap: () => _saveCheckin(mood: score),
+                  child: Container(
+                    margin: const EdgeInsets.symmetric(horizontal: 3),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: BoxDecoration(
+                      color: isSelected
+                          ? moodCol.withOpacity(isDark ? 0.35 : 0.18)
+                          : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC)),
+                      borderRadius: BorderRadius.circular(14),
+                      border: Border.all(
+                        color: isSelected ? moodCol : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
+                        width: isSelected ? 2.0 : 1.0,
+                      ),
+                    ),
+                    child: Column(
+                      children: [
+                        Text(emoji, style: const TextStyle(fontSize: 22)),
+                        const SizedBox(height: 4),
+                        Text(
+                          label,
+                          style: TextStyle(
+                            fontSize: 10,
+                            fontWeight: isSelected ? FontWeight.w900 : FontWeight.w500,
+                            color: isSelected ? (isDark ? Colors.white : moodCol) : subText,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Text(
-                    _weekRangeLabel,
-                    style: TextStyle(
-                      fontSize: 11.5,
-                      fontWeight: FontWeight.w600,
-                      color: isDark ? const Color(0xFFFF8A65) : const Color(0xFFD84315),
+                ),
+              );
+            }),
+          ),
+
+          // Soft Prompt for Awful (1) or Bad (2) Mood (Strictly supportive, never auto-diagnosing)
+          if (_todayMoodScore == 1 || _todayMoodScore == 2) ...[
+            const SizedBox(height: 14),
+            Container(
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFF7ED),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFFF8A65).withOpacity(0.4),
+                ),
+              ),
+              child: Row(
+                children: [
+                  const Text('💛', style: TextStyle(fontSize: 18)),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Having a difficult day? If you feel physically unwell, experience severe pain, or something feels wrong, check Danger Protocols or reach emergency care.',
+                      style: TextStyle(
+                        fontSize: 11,
+                        color: isDark ? Colors.white70 : const Color(0xFF475569),
+                        height: 1.35,
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  TextButton(
+                    onPressed: () {
+                      setState(() => _currentMode = _InsightMode.clinicalRedFlags);
+                    },
+                    style: TextButton.styleFrom(
+                      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                      visualDensity: VisualDensity.compact,
+                    ),
+                    child: const Text(
+                      'Protocols',
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFFDC2626),
+                      ),
                     ),
                   ),
                 ],
               ),
-              // Chart View Mode Switcher: Capsule Bars vs Trend Curve
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ── 2. Weekly Insights Capsule Bar Chart (Last 7 Points Only) ──────────────
+  Widget _buildWeeklyInsightsChartCard(Color cardBg, Color cardBorder, Color textColor, bool isDark) {
+    return Container(
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(22),
+        border: Border.all(color: cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Weekly Mood Trend',
+                style: TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.w800,
+                  color: textColor,
+                ),
+              ),
+              // Capsule Bars vs Trend Curve Mode Switcher
               Container(
+                padding: const EdgeInsets.all(2),
                 decoration: BoxDecoration(
                   color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Row(
                   children: [
-                    IconButton(
-                      iconSize: 18,
-                      padding: const EdgeInsets.all(6),
-                      constraints: const BoxConstraints(),
-                      icon: Icon(
-                        Icons.bar_chart_rounded,
-                        color: _chartMode == _ChartViewMode.capsuleBars
-                            ? const Color(0xFFFF8A65)
-                            : (isDark ? Colors.white38 : Colors.black38),
+                    InkWell(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _chartMode = _ChartViewMode.capsuleBars);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _chartMode == _ChartViewMode.capsuleBars
+                              ? (isDark ? const Color(0xFF0F172A) : Colors.white)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          Icons.bar_chart_rounded,
+                          size: 15,
+                          color: _chartMode == _ChartViewMode.capsuleBars
+                              ? const Color(0xFFFF8A65)
+                              : Colors.grey,
+                        ),
                       ),
-                      onPressed: () => setState(() => _chartMode = _ChartViewMode.capsuleBars),
                     ),
-                    IconButton(
-                      iconSize: 18,
-                      padding: const EdgeInsets.all(6),
-                      constraints: const BoxConstraints(),
-                      icon: Icon(
-                        Icons.show_chart_rounded,
-                        color: _chartMode == _ChartViewMode.trendCurve
-                            ? const Color(0xFFFF8A65)
-                            : (isDark ? Colors.white38 : Colors.black38),
+                    InkWell(
+                      onTap: () {
+                        HapticFeedback.selectionClick();
+                        setState(() => _chartMode = _ChartViewMode.trendCurve);
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: _chartMode == _ChartViewMode.trendCurve
+                              ? (isDark ? const Color(0xFF0F172A) : Colors.white)
+                              : Colors.transparent,
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                        child: Icon(
+                          Icons.show_chart_rounded,
+                          size: 15,
+                          color: _chartMode == _ChartViewMode.trendCurve
+                              ? const Color(0xFFFF8A65)
+                              : Colors.grey,
+                        ),
                       ),
-                      onPressed: () => setState(() => _chartMode = _ChartViewMode.trendCurve),
                     ),
                   ],
                 ),
               ),
             ],
           ),
-          const SizedBox(height: 24),
+          const SizedBox(height: 4),
+          Text(
+            _weekRangeLabel,
+            style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : const Color(0xFF64748B)),
+          ),
+          const SizedBox(height: 16),
 
-          // Render Selected Chart View
           _chartMode == _ChartViewMode.capsuleBars
               ? _buildCapsuleBarChart(textColor, isDark)
               : _buildTrendCurveChart(textColor, isDark),
@@ -719,80 +1103,69 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     );
   }
 
-  // Capsule Bar Chart (Image 4)
+  // Capsule Bar Chart: Last 7 days
   Widget _buildCapsuleBarChart(Color textColor, bool isDark) {
-    const double maxHeight = 120.0;
-
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       crossAxisAlignment: CrossAxisAlignment.end,
-      children: List.generate(_weekData.length, (idx) {
+      children: List.generate(7, (idx) {
         final item = _weekData[idx];
         final isSelected = _selectedDayIndex == idx;
-        final hasLog = item.moodScore > 0;
-        final barHeight = hasLog ? (item.moodScore / 5.0) * maxHeight : 12.0;
+        final isToday = idx == (DateTime.now().weekday - 1);
+        final heightRatio = item.moodScore > 0 ? (item.moodScore / 5.0) : 0.15;
+        final barHeight = 85.0 * heightRatio;
 
-        return InkWell(
+        return GestureDetector(
           onTap: () {
             HapticFeedback.selectionClick();
             setState(() => _selectedDayIndex = idx);
           },
-          borderRadius: BorderRadius.circular(20),
           child: Column(
-            mainAxisSize: MainAxisSize.min,
             children: [
-              // Character Emoji on top of the bar
-              if (hasLog)
-                Container(
-                  width: 28,
-                  height: 28,
-                  margin: const EdgeInsets.only(bottom: 6),
-                  decoration: BoxDecoration(
-                    color: item.color.withOpacity(0.25),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      item.emoji,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ),
-                )
+              if (item.moodScore > 0)
+                Text(item.emoji, style: const TextStyle(fontSize: 14))
               else
-                const SizedBox(height: 34),
+                const SizedBox(height: 18),
+              const SizedBox(height: 4),
 
-              // Animated Rounded Capsule Bar
-              AnimatedContainer(
-                duration: const Duration(milliseconds: 300),
-                width: 22,
-                height: barHeight,
+              // Bar Pill
+              Container(
+                width: 26,
+                height: 90,
                 decoration: BoxDecoration(
-                  color: hasLog
-                      ? item.color
-                      : (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0)),
-                  borderRadius: BorderRadius.circular(14),
-                  boxShadow: isSelected && hasLog
-                      ? [
-                          BoxShadow(
-                            color: item.color.withOpacity(0.5),
-                            blurRadius: 8,
-                            offset: const Offset(0, 2),
-                          ),
-                        ]
-                      : [],
+                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
+                  borderRadius: BorderRadius.circular(16),
+                  border: isSelected
+                      ? Border.all(color: const Color(0xFFFF8A65), width: 2)
+                      : null,
+                ),
+                alignment: Alignment.bottomCenter,
+                child: Container(
+                  width: 26,
+                  height: barHeight,
+                  decoration: BoxDecoration(
+                    color: item.moodScore > 0 ? item.color : Colors.transparent,
+                    borderRadius: BorderRadius.circular(16),
+                  ),
                 ),
               ),
               const SizedBox(height: 8),
 
-              // Day Label (MON, TUE...)
               Text(
                 item.dayName,
                 style: TextStyle(
-                  fontSize: 11,
-                  fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
-                  color: isSelected
-                      ? (isDark ? Colors.white : const Color(0xFF0F172A))
-                      : (isDark ? Colors.white54 : const Color(0xFF94A3B8)),
+                  fontSize: 10.5,
+                  fontWeight: isToday ? FontWeight.w900 : FontWeight.w600,
+                  color: isToday
+                      ? const Color(0xFFFF8A65)
+                      : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+                ),
+              ),
+              Text(
+                '${item.dayNumber}',
+                style: TextStyle(
+                  fontSize: 9.5,
+                  color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
                 ),
               ),
             ],
@@ -802,10 +1175,10 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     );
   }
 
-  // Trend Curve Graph (Image 5)
+  // Trend Curve Graph
   Widget _buildTrendCurveChart(Color textColor, bool isDark) {
     return SizedBox(
-      height: 160,
+      height: 140,
       width: double.infinity,
       child: CustomPaint(
         painter: _TrendCurvePainter(
@@ -816,8 +1189,11 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     );
   }
 
-  // ── 3. Daily Influences & Impact Factors (Image 4 & Image 5) ───────────────
+  // ── 3. Today's Habits (Progress vs Goal, Zero Fabricated Clinical Claims) ───
   Widget _buildDailyInfluencesSection(Color cardBg, Color cardBorder, Color textColor, bool isDark) {
+    final weeks = widget.profile?.computedWeeks ?? 28;
+    final isThirdTrimester = weeks >= 28;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -825,7 +1201,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Mood Influences',
+              'Habits & Influences',
               style: TextStyle(
                 fontSize: 15,
                 fontWeight: FontWeight.w800,
@@ -833,63 +1209,63 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
               ),
             ),
             Text(
-              'Daily Clinical Balance',
+              'Today’s habits',
               style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : const Color(0xFF64748B)),
             ),
           ],
         ),
         const SizedBox(height: 10),
 
-        // Two Hero Impact Cards (Dynamic Clinical Determinants for Hydration & Sleep)
+        // Hydration & Sleep Status Cards (Progress vs Target, No Diagnostic Overclaims)
         Builder(
           builder: (context) {
-            // Dynamic Hydration Formula
+            // Hydration Status (Encourage fluids, no amniotic index claims)
             final String waterTag;
             final Color waterTagColor;
             final String waterTitle;
             final String waterDesc;
             if (_waterGlassesToday < 4) {
-              waterTag = 'DEFICIT';
+              waterTag = 'ENCOURAGE';
               waterTagColor = const Color(0xFFE11D48);
-              waterTitle = 'Hydration Deficit';
-              waterDesc = '$_waterGlassesToday/8 glasses. Low amniotic index risk & cramping. Drink 4+ more glasses today.';
+              waterTitle = 'Increase Fluids';
+              waterDesc = '$_waterGlassesToday/8 glasses. Aim for steady fluid intake today. If experiencing severe vomiting or pain, check Danger Protocols or trigger SOS.';
             } else if (_waterGlassesToday < 8) {
-              waterTag = 'SUB-OPTIMAL';
+              waterTag = 'IN PROGRESS';
               waterTagColor = const Color(0xFFD97706);
               waterTitle = 'Moderate Hydration';
-              waterDesc = '$_waterGlassesToday/8 glasses. ${8 - _waterGlassesToday} more glasses needed to reach 8-glass daily goal (2.5L).';
+              waterDesc = '$_waterGlassesToday/8 glasses. Keep sipping water toward your daily 8-glass goal.';
             } else {
-              waterTag = 'OPTIMAL';
+              waterTag = 'ON TARGET';
               waterTagColor = const Color(0xFF16A34A);
-              waterTitle = 'Optimal Hydration';
-              waterDesc = '$_waterGlassesToday/8 glasses logged. Amniotic fluid volume & maternal circulation well supported.';
+              waterTitle = 'Hydration On Target';
+              waterDesc = '$_waterGlassesToday/8 glasses logged. Daily hydration goal achieved for you and baby.';
             }
 
-            // Dynamic Sleep Formula
+            // Sleep Status (Rest target for late pregnancy, no perfusion claims)
             final String sleepTag;
             final Color sleepTagColor;
             final String sleepTitle;
             final String sleepDesc;
             if (_sleepHoursToday < 6) {
-              sleepTag = 'FATIGUE';
+              sleepTag = 'REST TARGET';
               sleepTagColor = const Color(0xFFE11D48);
-              sleepTitle = 'Sleep Debt / Fatigue';
-              sleepDesc = '$_sleepHoursToday hrs logged. Elevates cortisol & vascular resistance. Rest in left-lateral position.';
+              sleepTitle = 'Rest Below Target';
+              sleepDesc = '$_sleepHoursToday hrs logged. The rest target for late pregnancy is 8-9 hours. Take restful pauses during the day.';
             } else if (_sleepHoursToday < 8) {
               sleepTag = 'MODERATE';
               sleepTagColor = const Color(0xFFD97706);
               sleepTitle = 'Moderate Rest';
-              sleepDesc = '$_sleepHoursToday hrs logged. Target 8-9h in late gestation. Plan a 30-min afternoon nap.';
+              sleepDesc = '$_sleepHoursToday hrs logged. Close to the recommended rest target for late pregnancy (8-9h).';
             } else {
-              sleepTag = 'RESTORATIVE';
+              sleepTag = 'RESTED';
               sleepTagColor = const Color(0xFF16A34A);
-              sleepTitle = 'Restorative Sleep';
-              sleepDesc = '$_sleepHoursToday hrs logged. Optimal cellular repair & uterine-placental blood perfusion.';
+              sleepTitle = 'Rest Target Met';
+              sleepDesc = '$_sleepHoursToday hrs logged. Met the rest target for late pregnancy. Rest comfortably on your side.';
             }
 
             return Row(
               children: [
-                // Dynamic Hydration Card
+                // Hydration Card
                 Expanded(
                   child: Container(
                     padding: const EdgeInsets.all(14),
@@ -915,7 +1291,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                                 waterTag,
                                 style: TextStyle(
                                   color: waterTagColor,
-                                  fontSize: 9,
+                                  fontSize: 8.5,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
@@ -948,7 +1324,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                 ),
                 const SizedBox(width: 12),
 
-                // Dynamic Sleep Card
+                // Sleep Card
                 Expanded(
                   child: Container(
                     padding: const EdgeInsets.all(14),
@@ -974,7 +1350,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                                 sleepTag,
                                 style: TextStyle(
                                   color: sleepTagColor,
-                                  fontSize: 9,
+                                  fontSize: 8.5,
                                   fontWeight: FontWeight.w900,
                                 ),
                               ),
@@ -1011,7 +1387,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
         ),
         const SizedBox(height: 12),
 
-        // Quick Daily Factor Loggers
+        // Quick Daily Habit Loggers
         Container(
           padding: const EdgeInsets.all(14),
           decoration: BoxDecoration(
@@ -1021,41 +1397,87 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
           ),
           child: Column(
             children: [
-              // Fetal Kicks Counter
-              Row(
+              // Fetal Kicks Counter (Emphasize third trimester, no pass/fail shame)
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Text('👶', style: TextStyle(fontSize: 20)),
-                  const SizedBox(width: 10),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text('Fetal Kicks (Active Baby)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor)),
-                        Text('Goal: 10 movements in 2 hours', style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white54 : const Color(0xFF64748B))),
-                      ],
+                  Row(
+                    children: [
+                      const Text('👶', style: TextStyle(fontSize: 20)),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              isThirdTrimester ? 'Fetal Kicks (Baby Movements)' : 'Fetal Movements',
+                              style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor),
+                            ),
+                            Text(
+                              'Know your baby’s usual pattern. If movements feel clearly less than normal → Danger Protocols or SOS.',
+                              style: TextStyle(
+                                fontSize: 10.5,
+                                color: isDark ? Colors.white54 : const Color(0xFF64748B),
+                                height: 1.3,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.remove_circle_outline_rounded, size: 22),
+                        onPressed: () {
+                          if (_fetalKicksToday > 0) {
+                            _saveCheckin(kicks: _fetalKicksToday - 1);
+                          }
+                        },
+                      ),
+                      Text(
+                        '$_fetalKicksToday',
+                        style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: textColor),
+                      ),
+                      IconButton(
+                        icon: const Icon(Icons.add_circle_outline_rounded, size: 22, color: Color(0xFFFF8A65)),
+                        onPressed: () {
+                          _saveCheckin(kicks: _fetalKicksToday + 1);
+                        },
+                      ),
+                    ],
+                  ),
+
+                  // First session educational empty state
+                  if (_fetalKicksToday == 0) ...[
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                      decoration: BoxDecoration(
+                        color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: Text(
+                        'Counting kicks helps you learn your baby’s normal daily pattern of movement. Set aside quiet time when baby is usually active. If movements feel clearly less than normal, do not wait — check Danger Protocols or trigger SOS.',
+                        style: TextStyle(
+                          fontSize: 10.5,
+                          color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                          height: 1.35,
+                        ),
+                      ),
                     ),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.remove_circle_outline_rounded, size: 22),
-                    onPressed: () {
-                      if (_fetalKicksToday > 0) {
-                        _saveCheckin(kicks: _fetalKicksToday - 1);
-                      }
-                    },
-                  ),
-                  Text(
-                    '$_fetalKicksToday',
-                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: textColor),
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.add_circle_outline_rounded, size: 22, color: Color(0xFFFF8A65)),
-                    onPressed: () {
-                      _saveCheckin(kicks: _fetalKicksToday + 1);
-                    },
-                  ),
+                  ],
+
+                  if (!isThirdTrimester) ...[
+                    const SizedBox(height: 4),
+                    Text(
+                      'Third-trimester focus (Week $weeks) • Movement tracking becomes regular after week 28.',
+                      style: TextStyle(
+                        fontSize: 9.5,
+                        color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+                      ),
+                    ),
+                  ],
                 ],
               ),
-              const Divider(height: 14),
+              const Divider(height: 16),
 
               // Water Intake Counter
               Row(
@@ -1091,7 +1513,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                   ),
                 ],
               ),
-              const Divider(height: 14),
+              const Divider(height: 16),
 
               // Rest & Sleep Counter
               Row(
@@ -1103,7 +1525,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Rest & Sleep (Hours)', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor)),
-                        Text('8-9 hours optimal in late gestation', style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white54 : const Color(0xFF64748B))),
+                        Text('8-9 hours rest target for late pregnancy', style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white54 : const Color(0xFF64748B))),
                       ],
                     ),
                   ),
@@ -1129,7 +1551,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                   ),
                 ],
               ),
-              const Divider(height: 14),
+              const Divider(height: 16),
 
               // Prenatal Vitamins Toggle
               Row(
@@ -1141,7 +1563,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
                         Text('Prenatal Vitamins & Iron', style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: textColor)),
-                        Text('Folate, Calcium & Micronutrients', style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white54 : const Color(0xFF64748B))),
+                        Text('Daily recommended maternal supplements', style: TextStyle(fontSize: 10.5, color: isDark ? Colors.white54 : const Color(0xFF64748B))),
                       ],
                     ),
                   ),
@@ -1161,7 +1583,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
     );
   }
 
-  // ── 4. Monthly Behaviour & Emotion Calendar (Matching Image 3) ─────────────
+  // ── 4. Monthly Behaviour & Emotion Calendar ────────────────────────────────
   Widget _buildMonthlyCalendarCard(Color cardBg, Color cardBorder, Color textColor, bool isDark) {
     return Container(
       padding: const EdgeInsets.all(18),
@@ -1200,148 +1622,158 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
               ),
             ],
           ),
+          const SizedBox(height: 4),
+          Text(
+            'Daily logs for emotion and habit tracking',
+            style: TextStyle(fontSize: 11, color: isDark ? Colors.white54 : const Color(0xFF64748B)),
+          ),
           const SizedBox(height: 14),
 
-          // Day header (M T W T F S S)
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceAround,
-            children: ['M', 'T', 'W', 'T', 'F', 'S', 'S'].map((d) {
-              return SizedBox(
-                width: 32,
-                child: Center(
-                  child: Text(
-                    d,
-                    style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.bold,
-                      color: isDark ? Colors.white54 : const Color(0xFF94A3B8),
-                    ),
-                  ),
-                ),
-              );
-            }).toList(),
-          ),
-          const SizedBox(height: 10),
-
-          // Calendar Grid (Dynamic days of current month, dots strictly from real saved records)
-          Builder(
-            builder: (context) {
-              final now = DateTime.now();
-              final daysInMonth = DateUtils.getDaysInMonth(now.year, now.month);
-              return Wrap(
-                spacing: 8,
-                runSpacing: 10,
-                alignment: WrapAlignment.spaceAround,
-                children: List.generate(daysInMonth, (index) {
-                  final day = index + 1;
-                  final isToday = day == now.day;
-                  final dayKey = _dateKey(DateTime(now.year, now.month, day));
-                  final rec = _savedDailyRecords[dayKey];
-                  Color dotColor = Colors.transparent;
-                  if (rec != null) {
-                    final score = (rec['mood'] as num?)?.toInt() ?? 0;
-                    dotColor = _getMoodColor(score);
-                  }
-
-                  return Container(
-                    width: 32,
-                    height: 38,
-                    decoration: BoxDecoration(
-                      color: isToday
-                          ? const Color(0xFFFF8A65).withOpacity(0.2)
-                          : Colors.transparent,
-                      borderRadius: BorderRadius.circular(8),
-                      border: isToday
-                          ? Border.all(color: const Color(0xFFFF8A65), width: 1.5)
-                          : null,
-                    ),
-                    child: Column(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
-                        Text(
-                          '$day',
-                          style: TextStyle(
-                            fontSize: 11,
-                            fontWeight: isToday ? FontWeight.w900 : FontWeight.w600,
-                            color: isToday
-                                ? const Color(0xFFFF8A65)
-                                : (day > now.day ? (isDark ? Colors.white24 : Colors.black26) : textColor),
-                          ),
-                        ),
-                        const SizedBox(height: 3),
-                        Container(
-                          width: 5,
-                          height: 5,
-                          decoration: BoxDecoration(
-                            color: dotColor,
-                            shape: BoxShape.circle,
-                          ),
-                        ),
-                      ],
-                    ),
-                  );
-                }),
-              );
-            },
-          ),
+          _buildCalendarMonthGrid(cardBg, textColor, isDark),
         ],
       ),
     );
   }
 
-  // ── Clinical Danger Signs & Emergency Pre-Alert ────────────────────────────
+  Widget _buildCalendarMonthGrid(Color cardBg, Color textColor, bool isDark) {
+    final now = DateTime.now();
+    final firstDayOfMonth = DateTime(now.year, now.month, 1);
+    final daysInMonth = DateTime(now.year, now.month + 1, 0).day;
+    final startingWeekday = firstDayOfMonth.weekday; // 1 = Mon, 7 = Sun
+
+    const dayLabels = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
+
+    return Column(
+      children: [
+        Row(
+          mainAxisAlignment: MainAxisAlignment.spaceAround,
+          children: dayLabels.map((lbl) => Text(
+            lbl,
+            style: TextStyle(fontSize: 11, fontWeight: FontWeight.bold, color: isDark ? Colors.white38 : const Color(0xFF94A3B8)),
+          )).toList(),
+        ),
+        const SizedBox(height: 8),
+
+        GridView.builder(
+          shrinkWrap: true,
+          physics: const NeverScrollableScrollPhysics(),
+          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: 7,
+            mainAxisSpacing: 6,
+            crossAxisSpacing: 6,
+            childAspectRatio: 1.0,
+          ),
+          itemCount: (startingWeekday - 1) + daysInMonth,
+          itemBuilder: (context, index) {
+            if (index < startingWeekday - 1) {
+              return const SizedBox.shrink();
+            }
+
+            final day = index - (startingWeekday - 2);
+            final dt = DateTime(now.year, now.month, day);
+            final key = _dateKey(dt);
+            final isToday = day == now.day;
+            final rec = _savedDailyRecords[key];
+            final moodScore = (rec?['mood'] as num?)?.toInt() ?? 0;
+            final moodColor = _getMoodColor(moodScore);
+
+            return Container(
+              decoration: BoxDecoration(
+                color: moodScore > 0
+                    ? moodColor.withOpacity(isDark ? 0.35 : 0.2)
+                    : (isToday
+                        ? (isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0))
+                        : Colors.transparent),
+                shape: BoxShape.circle,
+                border: isToday
+                    ? Border.all(color: const Color(0xFFFF8A65), width: 1.5)
+                    : null,
+              ),
+              child: Center(
+                child: Text(
+                  '$day',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: isToday ? FontWeight.w900 : FontWeight.w500,
+                    color: isToday
+                        ? const Color(0xFFFF8A65)
+                        : (moodScore > 0
+                            ? (isDark ? Colors.white : textColor)
+                            : (isDark ? Colors.white60 : const Color(0xFF64748B))),
+                  ),
+                ),
+              ),
+            );
+          },
+        ),
+      ],
+    );
+  }
+
+  // ── Clinical Danger Signs & Emergency Pre-Alert Desk (Danger Protocols) ────
   Widget _buildClinicalRedFlagsList(Color cardBg, Color cardBorder, Color textColor, bool isDark) {
     const dangerSigns = [
       _DangerSign(
         icon: '🩸',
-        title: 'Vaginal Bleeding (Antepartum Hemorrhage)',
-        subtitle: 'Bright red or dark bleeding with or without cramps',
-        clinicalImplication: 'May indicate placental abruption or placenta previa. Immediate pre-alert initiates O-Neg blood reservation.',
-        recommendedAction: 'Lie flat, do not insert tampons, request immediate transport.',
-        severity: 'CRITICAL P1',
-        conditionCode: 'Obstetric',
+        title: 'Vaginal Bleeding',
+        subtitle: 'Fresh red bleeding, heavy clots, or persistent dark spotting',
+        clinicalImplication: 'Risk of placental abruption, placenta praevia, or cervical changes.',
+        recommendedAction: 'Immediate non-ambulatory rest. Do not insert tampons. Solace SOS dispatch initiated.',
+        severity: 'PRIORITY 1 (CRITICAL)',
+        conditionCode: 'VAGINAL_BLEEDING',
       ),
       _DangerSign(
         icon: '💧',
-        title: 'Premature Rupture of Membranes (PROM)',
-        subtitle: 'Sudden gush or continuous trickle of watery fluid',
-        clinicalImplication: 'Risk of ascending intrauterine infection or umbilical cord prolapse.',
-        recommendedAction: 'Note fluid color (clear/green) and initiate hospital transfer.',
-        severity: 'CRITICAL P1',
-        conditionCode: 'Obstetric',
+        title: 'Amniotic Fluid Leak',
+        subtitle: 'Sudden gush or continuous clear / green-tinged fluid draining',
+        clinicalImplication: 'Pre-labour rupture of membranes (PROM); cord prolapse or ascending infection risk.',
+        recommendedAction: 'Note fluid colour, time, and odour. Avoid baths. Immediate sterile obstetric admission.',
+        severity: 'PRIORITY 1 (CRITICAL)',
+        conditionCode: 'WATERS_BROKE',
       ),
       _DangerSign(
         icon: '⚡',
-        title: 'Severe Preeclampsia / Convulsions (Eclampsia)',
-        subtitle: 'Pounding headache, blurred vision, sudden facial edema',
-        clinicalImplication: 'Risk of maternal seizure, intracranial hemorrhage, and fetal hypoxia.',
-        recommendedAction: 'ALS ambulance dispatched with Magnesium Sulfate infusion capability.',
-        severity: 'CRITICAL P1',
-        conditionCode: 'Obstetric',
+        title: 'Severe Headache & Vision Changes',
+        subtitle: 'Unrelenting pounding frontal headache, blurred vision, flashes, epigastric pain',
+        clinicalImplication: 'Severe pre-eclampsia / impending eclamptic convulsion.',
+        recommendedAction: 'Sit calmly in low light. Check blood pressure immediately if cuff available. Dispatch urgent obstetric triage.',
+        severity: 'PRIORITY 1 (CRITICAL)',
+        conditionCode: 'SEVERE_PREECLAMPSIA',
       ),
       _DangerSign(
         icon: '👶',
-        title: 'Decreased / Absent Fetal Movement',
-        subtitle: 'Fewer than 10 kicks over 2 hours during active maternal rest',
-        clinicalImplication: 'Sign of chronic fetal distress or placental insufficiency.',
-        recommendedAction: 'Requires immediate cardiotocography (CTG) and ultrasound biophysical profile.',
-        severity: 'URGENT P2',
-        conditionCode: 'Obstetric',
+        title: 'Reduced Fetal Movements',
+        subtitle: 'Noticeably fewer kicks or complete absence of normal active movement patterns',
+        clinicalImplication: 'Possible fetal compromise, placental insufficiency, or oligohydramnios.',
+        recommendedAction: 'Lie on left side for 30 min and drink cold water. If still quiet, immediate CTG assessment required.',
+        severity: 'PRIORITY 2 (HIGH)',
+        conditionCode: 'REDUCED_FETAL_MOVEMENTS',
+      ),
+      _DangerSign(
+        icon: '⏱️',
+        title: 'Regular Painful Contractions',
+        subtitle: 'Tightenings lasting >40s occurring every 3-5 minutes, especially before term',
+        clinicalImplication: 'Active labour or preterm labour requiring urgent maternal-fetal delivery readiness.',
+        recommendedAction: 'Prepare birth bag. Keep hydration sip. Engage Solace dispatch to designated maternity centre.',
+        severity: 'PRIORITY 1 (CRITICAL)',
+        conditionCode: 'PRETERM_LABOUR',
       ),
     ];
 
     return Column(
       children: dangerSigns.map((item) {
-        final isP1 = item.severity.contains('P1');
+        final isP1 = item.severity.contains('PRIORITY 1');
         return Container(
-          margin: const EdgeInsets.only(bottom: 14),
+          margin: const EdgeInsets.only(bottom: 12),
           padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: cardBg,
-            borderRadius: BorderRadius.circular(20),
+            borderRadius: BorderRadius.circular(18),
             border: Border.all(
-              color: isP1 ? Colors.red.shade400.withOpacity(0.4) : cardBorder,
-              width: isP1 ? 1.5 : 1.0,
+              color: isP1
+                  ? (isDark ? const Color(0xFF7F1D1D) : const Color(0xFFFECACA))
+                  : (isDark ? const Color(0xFF78350F) : const Color(0xFFFDE68A)),
+              width: 1.5,
             ),
           ),
           child: Column(
@@ -1461,6 +1893,19 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
       }).toList(),
     );
   }
+
+  String _weekdayName(int weekday) {
+    switch (weekday) {
+      case 0: return 'Sunday';
+      case 1: return 'Monday';
+      case 2: return 'Tuesday';
+      case 3: return 'Wednesday';
+      case 4: return 'Thursday';
+      case 5: return 'Friday';
+      case 6: return 'Saturday';
+      default: return 'Daily';
+    }
+  }
 }
 
 class _DangerSign {
@@ -1483,7 +1928,7 @@ class _DangerSign {
   });
 }
 
-// Custom Painter for Smooth Trend Curve Graph (Image 5)
+// Custom Painter for Smooth Trend Curve Graph
 class _TrendCurvePainter extends CustomPainter {
   final List<_DailyMoodRecord> weekData;
   final bool isDark;
