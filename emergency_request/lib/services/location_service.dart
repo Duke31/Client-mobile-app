@@ -17,14 +17,16 @@ class LocationFix {
 }
 
 /// High-accuracy GPS engine for Solace emergency medical dispatch.
-/// Optimised for sub-5 second lock without blocking UI or timing out.
+/// Uses true GNSS satellite hardware provider (`bestForNavigation`, `forceLocationManager: true`).
+/// Target accuracy: sub-15m building-entrance grade, with early exit as soon as satellite convergence is achieved.
 class LocationService {
   const LocationService();
 
   LocationSettings _streamSettings() {
     if (defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.high,
+        accuracy: LocationAccuracy.bestForNavigation,
+        forceLocationManager: true, // Hardware GPS satellites, not coarse network snap
         intervalDuration: const Duration(milliseconds: 1000),
         distanceFilter: 0,
       );
@@ -37,15 +39,16 @@ class LocationService {
       );
     }
     return const LocationSettings(
-      accuracy: LocationAccuracy.high,
+      accuracy: LocationAccuracy.bestForNavigation,
     );
   }
 
   LocationSettings _oneshotSettings() {
     if (defaultTargetPlatform == TargetPlatform.android) {
       return AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        timeLimit: const Duration(seconds: 6),
+        accuracy: LocationAccuracy.bestForNavigation,
+        forceLocationManager: true,
+        timeLimit: const Duration(seconds: 10),
       );
     }
     if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -53,12 +56,12 @@ class LocationService {
         accuracy: LocationAccuracy.bestForNavigation,
         activityType: ActivityType.otherNavigation,
         pauseLocationUpdatesAutomatically: false,
-        timeLimit: const Duration(seconds: 6),
+        timeLimit: const Duration(seconds: 10),
       );
     }
     return const LocationSettings(
-      accuracy: LocationAccuracy.high,
-      timeLimit: Duration(seconds: 6),
+      accuracy: LocationAccuracy.bestForNavigation,
+      timeLimit: Duration(seconds: 10),
     );
   }
 
@@ -78,7 +81,7 @@ class LocationService {
     return null;
   }
 
-  /// Acquires high-accuracy GPS fix with fast multi-stage convergence (2–4s).
+  /// Acquires true high-accuracy GNSS fix (sub-15m precision).
   Future<LocationFix> current() async {
     final serviceEnabled = await Geolocator.isLocationServiceEnabled();
     if (!serviceEnabled) {
@@ -100,12 +103,12 @@ class LocationService {
       );
     }
 
-    // Step 1: Check if last known fix is recent and accurate enough (<30m)
+    // Step 1: Check if last known fix is recent and high-accuracy (< 15m)
     try {
       final last = await Geolocator.getLastKnownPosition();
-      if (last != null && last.accuracy <= 25.0) {
+      if (last != null && last.accuracy <= 15.0) {
         final age = DateTime.now().difference(last.timestamp).inSeconds;
-        if (age < 30) {
+        if (age < 20) {
           return LocationFix(
             latitude: last.latitude,
             longitude: last.longitude,
@@ -116,7 +119,7 @@ class LocationService {
       }
     } catch (_) {}
 
-    // Step 2: Stream GPS updates with fast early-exit as soon as accuracy <= 20m
+    // Step 2: Stream GPS updates with fast early-exit as soon as accuracy <= 15m
     Position? best;
     final completer = Completer<Position?>();
 
@@ -127,23 +130,23 @@ class LocationService {
       if (best == null || pos.accuracy < best!.accuracy) {
         best = pos;
       }
-      // Accurate emergency fix achieved: exit early (no waiting for 12s timeout)
-      if (pos.accuracy <= 20.0 && !completer.isCompleted) {
+      // Strict building-entrance grade: complete early when GPS converges
+      if (pos.accuracy <= 15.0 && !completer.isCompleted) {
         completer.complete(pos);
       }
     }, onError: (Object e) {
       debugPrint('GPS stream error: $e');
     });
 
-    // Timeout safety fallback: 5.5 seconds max
-    Timer(const Duration(milliseconds: 5500), () {
+    // Convergence timeout: 8 seconds allows multi-satellite triangulation
+    Timer(const Duration(milliseconds: 8000), () {
       if (!completer.isCompleted) completer.complete(best);
     });
 
     final streamPos = await completer.future;
     await sub.cancel();
 
-    if (streamPos != null && streamPos.accuracy <= 60) {
+    if (streamPos != null && streamPos.accuracy <= 30) {
       return LocationFix(
         latitude: streamPos.latitude,
         longitude: streamPos.longitude,
@@ -151,7 +154,7 @@ class LocationService {
       );
     }
 
-    // Step 3: Direct oneshot query if stream yielded no high-confidence fix
+    // Step 3: Direct oneshot query with bestForNavigation
     try {
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: _oneshotSettings(),
@@ -162,7 +165,7 @@ class LocationService {
         accuracyMeters: pos.accuracy,
       );
     } catch (e) {
-      debugPrint('getCurrentPosition fallback notice: $e');
+      debugPrint('getCurrentPosition navigation fallback notice: $e');
     }
 
     if (streamPos != null) {
