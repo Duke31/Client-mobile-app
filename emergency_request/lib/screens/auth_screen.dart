@@ -31,7 +31,7 @@ class _AuthScreenState extends State<AuthScreen> {
   int _gestationalWeeks = 32;
   String _selectedBloodGroup = 'O- (Rare Blood Shield)';
   String _selectedGenotype = 'AA';
-  String _preferredHospital = 'LifeCare Private Clinic (Ring Road, Ibadan)';
+  String _preferredHospital = 'None / Auto-Select (Nearest Capable Facility)';
 
   static const List<String> _bloodGroups = [
     'Unknown',
@@ -48,6 +48,7 @@ class _AuthScreenState extends State<AuthScreen> {
   static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];
 
   static const List<String> _hospitals = [
+    'None / Auto-Select (Nearest Capable Facility)',
     'LifeCare Private Clinic (Ring Road, Ibadan)',
     'Bodija Premier Medical Center (Ibadan)',
     'University College Hospital - UCH Private Wing (Ibadan)',
@@ -88,6 +89,10 @@ class _AuthScreenState extends State<AuthScreen> {
     final isMaternal = _selectedPlan == 'maternal';
 
     try {
+      final cleanHosp = (_preferredHospital.contains('Auto-Select') || _preferredHospital.contains('None /'))
+          ? null
+          : _preferredHospital;
+
       if (_isSignUp) {
         final res = await _supabase.auth.signUp(
           email: email,
@@ -97,6 +102,7 @@ class _AuthScreenState extends State<AuthScreen> {
             'name': name,
             'phone': phone,
             'profile_type': _selectedPlan,
+            'subscription_tier': _selectedPlan,
             'is_pregnant': isMaternal,
             'gestational_weeks': isMaternal ? _gestationalWeeks : null,
             'edd': isMaternal && _eddController.text.trim().isNotEmpty
@@ -104,7 +110,7 @@ class _AuthScreenState extends State<AuthScreen> {
                 : null,
             'blood_group': _selectedBloodGroup != 'Unknown' ? _selectedBloodGroup : null,
             'genotype': _selectedGenotype,
-            'preferred_hospital': _preferredHospital,
+            'preferred_hospital': cleanHosp,
           },
         );
 
@@ -125,7 +131,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   : null,
               'blood_group': _selectedBloodGroup != 'Unknown' ? _selectedBloodGroup : null,
               'genotype': _selectedGenotype,
-              'preferred_hospital': _preferredHospital,
+              'preferred_hospital': cleanHosp,
             }, onConflict: 'user_id');
           } catch (_) {}
         }
