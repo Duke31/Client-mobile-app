@@ -476,7 +476,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             const SizedBox(height: 3),
                             Text(
-                              'Active Subscription • Priority L&D Direct Admission & Blood Reserve',
+                              'Active Subscription • Priority L&D Direct Admission',
                               style: TextStyle(
                                 fontSize: 11,
                                 color: isDark ? const Color(0xFFCBD5E1) : const Color(0xFF475569),
@@ -643,7 +643,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Clinical Baseline & Blood Reserve',
+                      'Clinical Baseline & Blood Group',
                       style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: textColor),
                     ),
                     const SizedBox(height: 12),
