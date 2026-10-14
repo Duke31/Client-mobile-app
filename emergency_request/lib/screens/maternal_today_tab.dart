@@ -49,34 +49,11 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     if (mounted) setState(() {});
   }
 
-  int get _computedElapsedDays {
-    // 1. Clinical calculation from EDD if available: 280 days total from LMP
-    if (widget.profile.edd != null && widget.profile.edd!.trim().isNotEmpty) {
-      final eddParsed = DateTime.tryParse(widget.profile.edd!.trim());
-      if (eddParsed != null) {
-        final now = DateTime.now();
-        final daysUntilDue = eddParsed.difference(DateTime(now.year, now.month, now.day)).inDays;
-        final elapsed = 280 - daysUntilDue;
-        return elapsed.clamp(1, 294);
-      }
-    }
-    // 2. If gestationalWeeks is specified directly
-    if (widget.profile.gestationalWeeks != null && widget.profile.gestationalWeeks! > 0) {
-      return (widget.profile.gestationalWeeks! * 7);
-    }
-    // Default baseline (37w)
-    return 37 * 7;
-  }
-
-  int get _weeks => (_computedElapsedDays ~/ 7).clamp(1, 42);
-  int get _days => (_computedElapsedDays % 7);
-  int get _pregnancyDay => _computedElapsedDays;
-
-  String get _trimesterLabel {
-    if (_weeks < 13) return 'First trimester';
-    if (_weeks < 28) return 'Second trimester';
-    return 'Third trimester';
-  }
+  int get _computedElapsedDays => widget.profile.computedElapsedDays;
+  int get _weeks => widget.profile.computedWeeks;
+  int get _days => widget.profile.computedDays;
+  int get _pregnancyDay => widget.profile.pregnancyDay;
+  String get _trimesterLabel => widget.profile.trimesterLabel;
 
   String get _monthName {
     final now = DateTime.now();
@@ -733,7 +710,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     return GestureDetector(
       onTap: onTap,
       child: Container(
-        height: 126,
+        constraints: const BoxConstraints(minHeight: 122),
         decoration: BoxDecoration(
           color: isDark ? const Color(0xFF1E293B) : Colors.white,
           borderRadius: BorderRadius.circular(16),
@@ -747,42 +724,60 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           ],
         ),
         child: Column(
+          mainAxisSize: MainAxisSize.min,
           children: [
             // Top Tag
             Container(
               width: double.infinity,
-              padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 5),
+              padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 5),
               decoration: BoxDecoration(
                 color: headerBg,
                 borderRadius: const BorderRadius.vertical(top: Radius.circular(14)),
               ),
-              child: Text(
-                tagText,
-                textAlign: TextAlign.center,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: TextStyle(
-                  color: tagTextColor,
-                  fontSize: 10,
-                  fontWeight: FontWeight.w800,
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    tagText,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: tagTextColor,
+                      fontSize: 10,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
                 ),
               ),
             ),
 
             // Center Widget
-            Expanded(
-              child: Center(child: mainContent),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 4),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: mainContent,
+                ),
+              ),
             ),
 
             // Bottom Label
             Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                bottomLabel,
-                style: TextStyle(
-                  color: isDark ? Colors.white70 : const Color(0xFF334155),
-                  fontSize: 11,
-                  fontWeight: FontWeight.w700,
+              padding: const EdgeInsets.only(bottom: 8, left: 4, right: 4),
+              child: Center(
+                child: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    bottomLabel,
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    style: TextStyle(
+                      color: isDark ? Colors.white70 : const Color(0xFF334155),
+                      fontSize: 11,
+                      fontWeight: FontWeight.w700,
+                    ),
+                  ),
                 ),
               ),
             ),
@@ -916,9 +911,9 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               const SizedBox(height: 14),
               _buildDetailMetricRow('Estimated Due Date', widget.profile.edd ?? 'Dec 15, 2026', isDark),
               _buildDetailMetricRow('Clinical Trimester', _trimesterLabel, isDark),
-              _buildDetailMetricRow('Baby Size Comparison', _weeks >= 37 ? 'Watermelon (~2.9 kg)' : 'Papaya (~1.8 kg)', isDark),
-              _buildDetailMetricRow('Rare Blood Shield', widget.profile.bloodGroup ?? 'O-Negative', isDark),
-              _buildDetailMetricRow('Preferred Hospital', (widget.profile.preferredHospitalName?.isNotEmpty == true ? widget.profile.preferredHospitalName! : 'Nearest Capable Facility (Auto-Select)'), isDark),
+              _buildDetailMetricRow('Baby Size Comparison', '${widget.profile.babyFruitComparison['fruit']} (${widget.profile.babyFruitComparison['weight']})', isDark),
+              _buildDetailMetricRow('Emergency Blood Reserve', widget.profile.bloodRhesusStatusLabel, isDark),
+              _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalDisplay, isDark),
               const SizedBox(height: 20),
               FilledButton(
                 style: FilledButton.styleFrom(
@@ -1102,7 +1097,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: const Text(
-                            '🌸 Maternal Care Plan • Active Shield',
+                            '🌸 Maternal Care Plan • Active',
                             style: TextStyle(
                               color: Color(0xFFEC4899),
                               fontSize: 10,
@@ -1126,9 +1121,9 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 child: Column(
                   children: [
                     _buildDetailMetricRow('Gestational Age', '$_weeks Weeks $_days Days', isDark),
-                    _buildDetailMetricRow('Blood Shield', widget.profile.bloodGroup ?? 'O- (Rare Blood Shield)', isDark),
+                    _buildDetailMetricRow('Emergency Blood Reserve', widget.profile.bloodRhesusStatusLabel, isDark),
                     _buildDetailMetricRow('Genotype', widget.profile.genotype ?? 'AA', isDark),
-                    _buildDetailMetricRow('Preferred Hospital', (widget.profile.preferredHospitalName?.isNotEmpty == true ? widget.profile.preferredHospitalName! : 'Nearest Capable Facility (Auto-Select)'), isDark),
+                    _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalDisplay, isDark),
                     _buildDetailMetricRow('Emergency Phone', widget.profile.phone.isNotEmpty ? widget.profile.phone : '+234 800 SOLACE', isDark),
                   ],
                 ),
@@ -1145,8 +1140,8 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                   Navigator.of(ctx).pop();
                   widget.onOpenShieldTab?.call();
                 },
-                icon: const Icon(Icons.shield_outlined, size: 18),
-                label: const Text('Open Full Medical Profile & Shield', style: TextStyle(fontWeight: FontWeight.w800)),
+                icon: const Icon(Icons.badge_outlined, size: 18),
+                label: const Text('Open Medical ID & Care Plan', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
             ],
           ),
@@ -1163,105 +1158,195 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
 
     showModalBottomSheet(
       context: context,
-      backgroundColor: cardBg,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(26)),
-      ),
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (ctx) {
         return StatefulBuilder(
           builder: (modalCtx, setModalState) {
-            return Padding(
-              padding: const EdgeInsets.fromLTRB(22, 12, 22, 26),
+            return Container(
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.85,
+              ),
+              decoration: BoxDecoration(
+                color: cardBg,
+                borderRadius: const BorderRadius.vertical(top: Radius.circular(26)),
+                border: Border(
+                  top: BorderSide(
+                    color: const Color(0xFFFF8A65).withOpacity(0.5),
+                    width: 1.5,
+                  ),
+                ),
+              ),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 24),
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   Center(
                     child: Container(
-                      width: 40,
-                      height: 4,
+                      width: 44,
+                      height: 4.5,
                       decoration: BoxDecoration(
                         color: Colors.grey.shade400,
-                        borderRadius: BorderRadius.circular(2),
+                        borderRadius: BorderRadius.circular(2.5),
                       ),
                     ),
                   ),
                   const SizedBox(height: 16),
+
+                  // Header with badge counter & Mark All Read
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
                       Row(
                         children: [
-                          const Icon(Icons.notifications_active_rounded, color: Color(0xFFFF8A65), size: 22),
-                          const SizedBox(width: 8),
-                          Text(
-                            'Care Alerts & Notifications',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.w900, color: textColor),
+                          Container(
+                            padding: const EdgeInsets.all(7),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFF8A65).withOpacity(0.15),
+                              shape: BoxShape.circle,
+                            ),
+                            child: const Icon(
+                              Icons.notifications_active_rounded,
+                              color: Color(0xFFFF8A65),
+                              size: 20,
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                'Care Alerts & Notifications',
+                                style: TextStyle(
+                                  fontSize: 16,
+                                  fontWeight: FontWeight.w900,
+                                  color: textColor,
+                                ),
+                              ),
+                              Text(
+                                _unreadAlertCount > 0
+                                    ? '$_unreadAlertCount active alerts requiring attention'
+                                    : 'All clinical alerts acknowledged',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                ),
+                              ),
+                            ],
                           ),
                         ],
                       ),
                       if (_unreadAlertCount > 0)
                         TextButton(
                           onPressed: () {
+                            HapticFeedback.selectionClick();
                             setState(() => _unreadAlertCount = 0);
                             setModalState(() {});
                           },
-                          child: const Text('Mark all as read', style: TextStyle(fontSize: 11.5, fontWeight: FontWeight.bold)),
+                          child: const Text(
+                            'Mark all read',
+                            style: TextStyle(
+                              fontSize: 11.5,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF0284C7),
+                            ),
+                          ),
                         ),
                     ],
                   ),
-                  const SizedBox(height: 12),
-                  // Notification Card 1: Direct-to-Bed Protocol
-                  _buildNotificationTile(
-                    icon: '🚨',
-                    iconBg: Colors.red.shade100,
-                    tag: 'DIRECT-TO-BED DISPATCH',
-                    tagColor: const Color(0xFFEF4444),
-                    title: 'Direct-to-Bed Dispatch Pre-Alert Armed',
-                    body: 'Your live GPS coordinates are connected to the regional acute emergency cluster. Response time: < 8 mins.',
-                    time: 'Live',
-                    actionLabel: 'View Shield',
-                    onAction: () {
-                      Navigator.of(ctx).pop();
-                      widget.onOpenShieldTab?.call();
-                    },
-                    isDark: isDark,
-                  ),
-                  const SizedBox(height: 10),
-                  // Notification Card 2: Clinical Milestone
-                  _buildNotificationTile(
-                    icon: '🤰',
-                    iconBg: const Color(0xFFFFE8DC),
-                    tag: 'WEEK $_weeks MILESTONE',
-                    tagColor: const Color(0xFFFF8A65),
-                    title: 'Week $_weeks Clinical Milestone Alert',
-                    body: _weeks >= 36
-                        ? 'Third trimester term protocol active. Verify delivery bag & blood reserve.'
-                        : 'Routine fetal development on track. Monitor kick frequency.',
-                    time: 'Today',
-                    actionLabel: 'Open Insights',
-                    onAction: () {
-                      Navigator.of(ctx).pop();
-                      widget.onOpenInsightsTab?.call();
-                    },
-                    isDark: isDark,
-                  ),
-                  const SizedBox(height: 10),
-                  // Notification Card 3: Daily Hydration & Kicks
-                  _buildNotificationTile(
-                    icon: '💧',
-                    iconBg: Colors.blue.shade100,
-                    tag: 'DAILY WELLNESS',
-                    tagColor: const Color(0xFF0284C7),
-                    title: 'Daily Hydration & Kick Check-In',
-                    body: 'Keep baby safe by logging your movement counts and daily feelings.',
-                    time: '9:00 AM',
-                    actionLabel: 'Log Now',
-                    onAction: () {
-                      Navigator.of(ctx).pop();
-                      widget.onOpenInsightsTab?.call();
-                    },
-                    isDark: isDark,
+                  const SizedBox(height: 14),
+
+                  // Scrollable Alert Cards
+                  Flexible(
+                    child: SingleChildScrollView(
+                      physics: const BouncingScrollPhysics(),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.stretch,
+                        children: [
+                          // Alert 1: Direct-to-Bed Dispatch Protocol
+                          _buildNotificationTile(
+                            icon: '🚨',
+                            iconBg: Colors.red.shade100,
+                            tag: 'DIRECT-TO-BED DISPATCH',
+                            tagColor: const Color(0xFFEF4444),
+                            title: 'Priority L&D Direct Dispatch Route Armed',
+                            body: 'GPS route mapped to ${widget.profile.preferredHospitalDisplay}. Live rapid response ambulance fleet standby radius < 8 mins.',
+                            time: 'Live 24/7',
+                            actionLabel: 'View Dispatch Desk',
+                            onAction: () {
+                              Navigator.of(ctx).pop();
+                              widget.onTriggerSos();
+                            },
+                            isDark: isDark,
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Alert 2: Gestational Milestone Clinical Alert
+                          _buildNotificationTile(
+                            icon: '🤰',
+                            iconBg: const Color(0xFFFFE8DC),
+                            tag: 'WEEK $_weeks CLINICAL MILESTONE',
+                            tagColor: const Color(0xFFFF8A65),
+                            title: 'Week $_weeks Gestation Protocol Active',
+                            body: _weeks >= 36
+                                ? 'Full-term protocol armed. Hospital delivery pack ready, anti-D status confirmed, and acute obstetric theater on pre-alert standby.'
+                                : 'Routine fetal development on track. Monitor kick frequency (>10 kicks in 2h) and log daily hydration.',
+                            time: 'Today',
+                            actionLabel: 'Open Insights',
+                            onAction: () {
+                              Navigator.of(ctx).pop();
+                              widget.onOpenInsightsTab?.call();
+                            },
+                            isDark: isDark,
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Alert 3: Blood Group & Emergency Blood Reserve
+                          _buildNotificationTile(
+                            icon: '🩸',
+                            iconBg: widget.profile.isRhesusNegative
+                                ? Colors.red.shade100
+                                : Colors.purple.shade100,
+                            tag: widget.profile.isRhesusNegative
+                                ? 'RH-NEGATIVE PRE-ALERT'
+                                : 'BLOOD RESERVE VERIFIED',
+                            tagColor: widget.profile.isRhesusNegative
+                                ? const Color(0xFFDC2626)
+                                : const Color(0xFF7C3AED),
+                            title: 'Emergency Blood Reserve: ${widget.profile.bloodRhesusStatusLabel}',
+                            body: widget.profile.isRhesusNegative
+                                ? 'Rare Rh-Negative status flagged for regional hospital blood banks. Zero-delay uncrossmatched O-Neg blood standby enabled.'
+                                : 'Compatible blood reserve verified across partner acute centers for your clinical baseline.',
+                            time: 'Verified',
+                            actionLabel: 'Review Medical ID',
+                            onAction: () {
+                              Navigator.of(ctx).pop();
+                              widget.onOpenShieldTab?.call();
+                            },
+                            isDark: isDark,
+                          ),
+                          const SizedBox(height: 10),
+
+                          // Alert 4: Daily Wellness & Biometrics
+                          _buildNotificationTile(
+                            icon: '💧',
+                            iconBg: Colors.blue.shade100,
+                            tag: 'DAILY BIOMETRICS',
+                            tagColor: const Color(0xFF0284C7),
+                            title: 'Daily Hydration & Sleep Check-In',
+                            body: 'Keep amniotic volume optimal by logging today’s water intake and restorative sleep hours.',
+                            time: 'Daily Log',
+                            actionLabel: 'Log Biometrics',
+                            onAction: () {
+                              Navigator.of(ctx).pop();
+                              widget.onOpenInsightsTab?.call();
+                            },
+                            isDark: isDark,
+                          ),
+                        ],
+                      ),
+                    ),
                   ),
                 ],
               ),
@@ -1291,8 +1376,15 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(15),
+        borderRadius: BorderRadius.circular(16),
         border: Border.all(color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withOpacity(isDark ? 0.2 : 0.03),
+            blurRadius: 6,
+            offset: const Offset(0, 2),
+          ),
+        ],
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1322,19 +1414,24 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 ),
               ),
               const Spacer(),
-              Text(time, style: const TextStyle(fontSize: 10.5, color: Colors.grey)),
+              Text(
+                time,
+                style: const TextStyle(fontSize: 10.5, color: Colors.grey, fontWeight: FontWeight.w600),
+              ),
             ],
           ),
           const SizedBox(height: 8),
           Text(
             title,
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w800,
               color: titleColor,
             ),
           ),
-          const SizedBox(height: 3),
+          const SizedBox(height: 4),
           Text(
             body,
             style: TextStyle(fontSize: 11.5, color: bodyColor, height: 1.35),
