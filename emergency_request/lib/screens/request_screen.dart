@@ -1,4 +1,4 @@
-﻿import '../utils/error_sanitizer.dart';
+import '../utils/error_sanitizer.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -148,8 +148,8 @@ class RequestScreenState extends State<RequestScreen>
             _loadingLocation = false;
           });
 
-          // Always snap/recenter map when first fix arrives OR whenever precision upgrades from coarse to fine!
-          if (isFirst || isAccuracyUpgrade) {
+          // Always snap/recenter map when first fix arrives, precision upgrades, or location offsets significantly (> 20m)
+          if (isFirst || isAccuracyUpgrade || distance > 20.0) {
             try {
               _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
             } catch (_) {}
@@ -352,6 +352,71 @@ class RequestScreenState extends State<RequestScreen>
       }
     }
   }
+
+  /// Forces fresh satellite hardware GPS reading and recalibrates position if offset
+  Future<void> _reloadGpsLocation({bool userInitiated = true}) async {
+    setState(() => _loadingLocation = true);
+    HapticFeedback.selectionClick();
+
+    try {
+      final previousFix = _fix;
+      final freshFix = await _location.forceFreshGps(
+        timeout: const Duration(seconds: 8),
+      );
+
+      if (!mounted) return;
+
+      double offsetDistance = 0.0;
+      if (previousFix != null) {
+        offsetDistance = Geolocator.distanceBetween(
+          previousFix.latitude,
+          previousFix.longitude,
+          freshFix.latitude,
+          freshFix.longitude,
+        );
+      }
+
+      await _applyFix(freshFix);
+
+      if (mounted && userInitiated) {
+        final acc = freshFix.accuracyMeters != null
+            ? '±${freshFix.accuracyMeters!.round()}m'
+            : '';
+        final msg = offsetDistance > 15.0
+            ? 'GPS Recalibrated (adjusted by ${offsetDistance.round()}m $acc)'
+            : 'GPS Locked at highest precision $acc';
+
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Row(
+              children: [
+                const Icon(Icons.gps_fixed_rounded, color: Color(0xFF00E676), size: 18),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: Text(
+                    msg,
+                    style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 12),
+                  ),
+                ),
+              ],
+            ),
+            backgroundColor: const Color(0xFF07193F),
+            duration: const Duration(seconds: 2),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        await _loadLocation();
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _loadingLocation = false);
+      }
+    }
+  }
+
 
   Future<void> _onMapTap(TapPosition _, LatLng point) async {
     HapticFeedback.lightImpact();
@@ -957,8 +1022,8 @@ class RequestScreenState extends State<RequestScreen>
                         backgroundColor: const Color(0xFF07193F),
                         foregroundColor: const Color(0xFF00D4FF),
                         elevation: 4,
-                        tooltip: 'Recenter GPS',
-                        onPressed: _loadLocation,
+                        tooltip: 'Recenter & Recalibrate GPS',
+                        onPressed: _loadingLocation ? null : () => _reloadGpsLocation(userInitiated: true),
                         child: _loadingLocation
                             ? const SizedBox(
                                 width: 16,
@@ -968,7 +1033,7 @@ class RequestScreenState extends State<RequestScreen>
                                   color: Color(0xFF00D4FF),
                                 ),
                               )
-                            : const Icon(Icons.near_me_rounded, size: 19),
+                            : const Icon(Icons.my_location_rounded, size: 19),
                       ),
                     ),
 
