@@ -20,7 +20,14 @@ class _AuthScreenState extends State<AuthScreen> {
   final _passwordController = TextEditingController();
   final _nameController = TextEditingController();
   final _phoneController = TextEditingController();
+  final _dobController = TextEditingController();
+  final _allergiesController = TextEditingController();
+
+  // Maternal controllers
   final _eddController = TextEditingController();
+  final _lmpController = TextEditingController();
+  final _parityController = TextEditingController();
+  bool _hasPreviousCSection = false;
 
   bool _isSignUp = false;
   bool _isLoading = false;
@@ -29,35 +36,11 @@ class _AuthScreenState extends State<AuthScreen> {
 
   // Care Plan Onboarding State
   String _selectedPlan = 'standard'; // 'standard' (default) | 'maternal'
-  int _gestationalWeeks = 32;
-  String _selectedBloodGroup = 'O- (Rare Rh-Negative Reserve)';
-  String _selectedGenotype = 'AA';
-  String _preferredHospital = 'None / Auto-Select (Nearest Capable Facility)';
+  String _selectedAgeBand = '18-39';
+  String _selectedBloodGroup = 'Unknown';
 
-  static const List<String> _bloodGroups = [
-    'Unknown',
-    'A+',
-    'A-',
-    'B+',
-    'B-',
-    'AB+',
-    'AB-',
-    'O+',
-    'O- (Rare Rh-Negative Reserve)',
-  ];
-
-  static const List<String> _genotypes = ['AA', 'AS', 'SS', 'AC', 'SC'];
-
-  static const List<String> _hospitals = [
-    'None / Auto-Select (Nearest Capable Facility)',
-    'LifeCare Private Clinic (Ring Road, Ibadan)',
-    'Bodija Premier Medical Center (Ibadan)',
-    'University College Hospital - UCH Private Wing (Ibadan)',
-    'Asubiaro State Hospital (Osogbo, Osun State)',
-    'UNIOSUN Teaching Hospital (Osun State)',
-    'Lagos University Teaching Hospital - LUTH (Lagos)',
-    'First Cardiology / Lekki Medical Center (Lagos)',
-  ];
+  static const List<String> _bloodGroups = MemberProfile.validBloodGroups;
+  static const List<Map<String, String>> _ageBands = MemberProfile.ageBandOptions;
 
   @override
   void dispose() {
@@ -65,14 +48,98 @@ class _AuthScreenState extends State<AuthScreen> {
     _passwordController.dispose();
     _nameController.dispose();
     _phoneController.dispose();
+    _dobController.dispose();
+    _allergiesController.dispose();
     _eddController.dispose();
+    _lmpController.dispose();
+    _parityController.dispose();
     super.dispose();
   }
 
+  /// Derive computed gestational age and trimester from EDD or LMP
+  int? get _computedGestationalWeeks {
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+
+    if (_lmpController.text.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(_lmpController.text.trim());
+      if (parsed != null) {
+        final lmpDay = DateTime(parsed.year, parsed.month, parsed.day);
+        final elapsed = today.difference(lmpDay).inDays;
+        return (elapsed ~/ 7).clamp(1, 42);
+      }
+    }
+
+    if (_eddController.text.trim().isNotEmpty) {
+      final parsed = DateTime.tryParse(_eddController.text.trim());
+      if (parsed != null) {
+        final eddDay = DateTime(parsed.year, parsed.month, parsed.day);
+        final daysUntilDue = eddDay.difference(today).inDays;
+        final elapsed = 280 - daysUntilDue;
+        return (elapsed ~/ 7).clamp(1, 42);
+      }
+    }
+
+    return null;
+  }
+
   String _getTrimesterLabel(int weeks) {
-    if (weeks < 13) return '1st Trimester';
-    if (weeks < 28) return '2nd Trimester';
+    if (weeks <= 13) return '1st Trimester';
+    if (weeks <= 27) return '2nd Trimester';
     return '3rd Trimester';
+  }
+
+  /// Derive age in years from DOB
+  int? get _derivedAge {
+    final text = _dobController.text.trim();
+    if (text.isEmpty) return null;
+    final dob = DateTime.tryParse(text);
+    if (dob == null) return null;
+    final now = DateTime.now();
+    int age = now.year - dob.year;
+    if (now.month < dob.month || (now.month == dob.month && now.day < dob.day)) {
+      age--;
+    }
+    return age >= 0 ? age : null;
+  }
+
+  String get _effectiveAgeBand {
+    final age = _derivedAge;
+    if (age != null) {
+      if (age <= 1) return '0-1';
+      if (age <= 12) return '2-12';
+      if (age <= 17) return '13-17';
+      if (age <= 39) return '18-39';
+      if (age <= 64) return '40-64';
+      return '65+';
+    }
+    return _selectedAgeBand;
+  }
+
+  Future<void> _pickDate({
+    required TextEditingController controller,
+    required String title,
+    required DateTime initialDate,
+    required DateTime firstDate,
+    required DateTime lastDate,
+    VoidCallback? onSelected,
+  }) async {
+    final picked = await showDatePicker(
+      context: context,
+      initialDate: initialDate,
+      firstDate: firstDate,
+      lastDate: lastDate,
+      helpText: title,
+    );
+    if (picked != null) {
+      final iso = "${picked.year.toString().padLeft(4, '0')}-"
+          "${picked.month.toString().padLeft(2, '0')}-"
+          "${picked.day.toString().padLeft(2, '0')}";
+      setState(() {
+        controller.text = iso;
+        onSelected?.call();
+      });
+    }
   }
 
   Future<void> _submit() async {
@@ -89,11 +156,20 @@ class _AuthScreenState extends State<AuthScreen> {
     final phone = _phoneController.text.trim();
     final isMaternal = _selectedPlan == 'maternal';
 
-    try {
-      final cleanHosp = (_preferredHospital.contains('Auto-Select') || _preferredHospital.contains('None /'))
-          ? null
-          : _preferredHospital;
+    final cleanBlood = MemberProfile.sanitizeBloodGroup(_selectedBloodGroup);
+    final allergiesText = _allergiesController.text.trim();
+    final eddText = _eddController.text.trim();
+    final lmpText = _lmpController.text.trim();
+    final parityText = _parityController.text.trim();
+    final dobText = _dobController.text.trim();
+    final finalAgeBand = _effectiveAgeBand;
 
+    final maternalRisks = <String>[];
+    if (isMaternal && _hasPreviousCSection) {
+      maternalRisks.add('Previous C-Section');
+    }
+
+    try {
       if (_isSignUp) {
         final res = await _supabase.auth.signUp(
           email: email,
@@ -102,16 +178,19 @@ class _AuthScreenState extends State<AuthScreen> {
             'full_name': name,
             'name': name,
             'phone': phone,
+            'care_plan': _selectedPlan,
             'profile_type': _selectedPlan,
             'subscription_tier': _selectedPlan,
             'is_pregnant': isMaternal,
-            'gestational_weeks': isMaternal ? _gestationalWeeks : null,
-            'edd': isMaternal && _eddController.text.trim().isNotEmpty
-                ? _eddController.text.trim()
-                : null,
-            'blood_group': _selectedBloodGroup != 'Unknown' ? MemberProfile.sanitizeBloodGroup(_selectedBloodGroup) : null,
-            'genotype': _selectedGenotype,
-            'preferred_hospital': cleanHosp,
+            'date_of_birth': dobText.isNotEmpty ? dobText : null,
+            'age_band': finalAgeBand,
+            'blood_group': cleanBlood.isNotEmpty ? cleanBlood : null,
+            'allergies': allergiesText.isNotEmpty ? allergiesText : null,
+            'gestational_weeks': isMaternal ? _computedGestationalWeeks : null,
+            'edd': isMaternal && eddText.isNotEmpty ? eddText : null,
+            'lmp_date': isMaternal && lmpText.isNotEmpty ? lmpText : null,
+            'gravida_para': isMaternal && parityText.isNotEmpty ? parityText : null,
+            'known_risks': isMaternal && maternalRisks.isNotEmpty ? maternalRisks : null,
           },
         );
 
@@ -126,13 +205,13 @@ class _AuthScreenState extends State<AuthScreen> {
               'role': 'client',
               'profile_type': _selectedPlan,
               'is_pregnant': isMaternal,
-              'gestational_weeks': isMaternal ? _gestationalWeeks : null,
-              'edd': isMaternal && _eddController.text.trim().isNotEmpty
-                  ? _eddController.text.trim()
-                  : null,
-              'blood_group': _selectedBloodGroup != 'Unknown' ? MemberProfile.sanitizeBloodGroup(_selectedBloodGroup) : null,
-              'genotype': _selectedGenotype,
-              'preferred_hospital': cleanHosp,
+              'gestational_weeks': isMaternal ? _computedGestationalWeeks : null,
+              'edd': isMaternal && eddText.isNotEmpty ? eddText : null,
+              'gravida_para': isMaternal && parityText.isNotEmpty ? parityText : null,
+              'blood_group': cleanBlood.isNotEmpty ? cleanBlood : null,
+              'age_band': finalAgeBand,
+              'allergies': allergiesText.isNotEmpty ? allergiesText : null,
+              'known_risks': isMaternal && maternalRisks.isNotEmpty ? maternalRisks : null,
             }, onConflict: 'user_id');
           } catch (_) {}
         }
@@ -178,6 +257,7 @@ class _AuthScreenState extends State<AuthScreen> {
     required IconData prefixIcon,
     required bool isDark,
     Widget? suffixIcon,
+    String? hintText,
   }) {
     final borderCol = isDark ? const Color(0xFF334155) : const Color(0xFFCBD5E1);
     final focusCol = isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7);
@@ -185,6 +265,11 @@ class _AuthScreenState extends State<AuthScreen> {
 
     return InputDecoration(
       labelText: label,
+      hintText: hintText,
+      hintStyle: TextStyle(
+        color: isDark ? const Color(0xFF64748B) : const Color(0xFF94A3B8),
+        fontSize: 12,
+      ),
       labelStyle: TextStyle(
         color: isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B),
         fontSize: 13,
@@ -223,6 +308,8 @@ class _AuthScreenState extends State<AuthScreen> {
     final textPrimary = isDark ? Colors.white : const Color(0xFF0F172A);
     final textSecondary = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
     final primaryColor = isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7);
+
+    final weeks = _computedGestationalWeeks;
 
     return Scaffold(
       backgroundColor: bgColor,
@@ -268,7 +355,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Emergency Medical Network • Direct-to-Bed Guarantee',
+                    'Emergency Medical Network • Fast Dispatch Coordination',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: textSecondary,
@@ -413,14 +500,14 @@ class _AuthScreenState extends State<AuthScreen> {
                         ),
                         const SizedBox(height: 20),
 
-                        // SIGN UP ONLY FIELDS
+                        // SIGN UP ONLY FIELDS (Minimum essentials)
                         if (_isSignUp) ...[
                           // Full Name
                           TextFormField(
                             controller: _nameController,
                             style: TextStyle(color: textPrimary, fontSize: 14),
                             decoration: _inputDecoration(
-                              label: 'Full Legal Name',
+                              label: 'Full Legal Name *',
                               prefixIcon: Icons.person_outline_rounded,
                               isDark: isDark,
                             ),
@@ -439,7 +526,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             keyboardType: TextInputType.phone,
                             style: TextStyle(color: textPrimary, fontSize: 14),
                             decoration: _inputDecoration(
-                              label: 'Emergency Contact Phone (+234...)',
+                              label: 'Emergency Contact Phone (+234...) *',
                               prefixIcon: Icons.phone_outlined,
                               isDark: isDark,
                             ),
@@ -452,7 +539,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                           const SizedBox(height: 18),
 
-                          // ── CARE PLAN SELECTOR (Maternal vs Standard) ─────────
+                          // ── CARE PLAN SELECTOR (Standard vs Maternal) ─────────
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -473,7 +560,7 @@ class _AuthScreenState extends State<AuthScreen> {
                               ),
                               const SizedBox(height: 8),
 
-                              // Plan A: Standard Emergency Shield (Default)
+                              // Plan A: Standard Emergency Care Plan (Default)
                               InkWell(
                                 onTap: () {
                                   HapticFeedback.selectionClick();
@@ -488,9 +575,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                         : (isDark ? const Color(0xFF0F172A) : const Color(0xFFF8FAFC)),
                                     borderRadius: BorderRadius.circular(14),
                                     border: Border.all(
-                                      color: _selectedPlan == 'standard'
-                                          ? primaryColor
-                                          : cardBorder,
+                                      color: _selectedPlan == 'standard' ? primaryColor : cardBorder,
                                       width: _selectedPlan == 'standard' ? 2.0 : 1.0,
                                     ),
                                   ),
@@ -512,7 +597,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                             Row(
                                               children: [
                                                 const Text(
-                                                  'Standard Emergency Care Plan',
+                                                  'Standard Emergency Care',
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.w800,
                                                     fontSize: 13,
@@ -537,7 +622,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                               ],
                                             ),
                                             Text(
-                                              'VIP direct-to-bed intake for acute trauma, cardiac, pediatric & acute cases.',
+                                              'Emergency ambulance dispatch & rapid hospital triage for medical emergencies.',
                                               style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
                                             ),
                                           ],
@@ -547,9 +632,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                         _selectedPlan == 'standard'
                                             ? Icons.check_circle_rounded
                                             : Icons.radio_button_off_rounded,
-                                        color: _selectedPlan == 'standard'
-                                            ? primaryColor
-                                            : textSecondary,
+                                        color: _selectedPlan == 'standard' ? primaryColor : textSecondary,
                                         size: 20,
                                       ),
                                     ],
@@ -558,7 +641,7 @@ class _AuthScreenState extends State<AuthScreen> {
                               ),
                               const SizedBox(height: 8),
 
-                              // Plan B: Maternal & Obstetric Plan (Subscription)
+                              // Plan B: Maternal & Obstetric Plan
                               InkWell(
                                 onTap: () {
                                   HapticFeedback.selectionClick();
@@ -597,7 +680,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                             Row(
                                               children: [
                                                 const Text(
-                                                  'Maternal & Obstetric Plan',
+                                                  'Maternal & Obstetric Care',
                                                   style: TextStyle(
                                                     fontWeight: FontWeight.w800,
                                                     fontSize: 13,
@@ -611,7 +694,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                                     borderRadius: BorderRadius.circular(4),
                                                   ),
                                                   child: const Text(
-                                                    'SUBSCRIPTION',
+                                                    'MATERNAL',
                                                     style: TextStyle(
                                                       fontSize: 8.5,
                                                       fontWeight: FontWeight.w900,
@@ -622,7 +705,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                               ],
                                             ),
                                             Text(
-                                              'Gestational tracking, daily wellness insights, labor pre-alert & clinical care plan.',
+                                              'Obstetric triage, gestational guidance, daily insights & en-route hospital alert.',
                                               style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
                                             ),
                                           ],
@@ -645,7 +728,99 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          // MATERNAL-SPECIFIC FIELDS
+                          // ── CLIENT AGE / DOB SECTION ─────────────────────────
+                          TextFormField(
+                            controller: _dobController,
+                            readOnly: true,
+                            style: TextStyle(color: textPrimary, fontSize: 13),
+                            onTap: () => _pickDate(
+                              controller: _dobController,
+                              title: 'Select Date of Birth',
+                              initialDate: DateTime.now().subtract(const Duration(days: 365 * 25)),
+                              firstDate: DateTime(1920),
+                              lastDate: DateTime.now(),
+                            ),
+                            decoration: _inputDecoration(
+                              label: 'Date of Birth (Optional for Age Band)',
+                              prefixIcon: Icons.cake_outlined,
+                              hintText: 'YYYY-MM-DD',
+                              isDark: isDark,
+                              suffixIcon: _dobController.text.isNotEmpty
+                                  ? IconButton(
+                                      icon: const Icon(Icons.clear, size: 18),
+                                      onPressed: () => setState(() => _dobController.clear()),
+                                    )
+                                  : const Icon(Icons.calendar_today_rounded, size: 18),
+                            ),
+                          ),
+                          if (_derivedAge != null) ...[
+                            Padding(
+                              padding: const EdgeInsets.only(top: 4, left: 4),
+                              child: Text(
+                                'Age: $_derivedAge years • Derived Band: $_effectiveAgeBand',
+                                style: const TextStyle(fontSize: 11, color: Color(0xFF0284C7), fontWeight: FontWeight.w600),
+                              ),
+                            ),
+                          ] else ...[
+                            const SizedBox(height: 10),
+                            // Fallback age band selector if DOB not provided
+                            DropdownButtonFormField<String>(
+                              value: _selectedAgeBand,
+                              dropdownColor: cardBg,
+                              style: TextStyle(color: textPrimary, fontSize: 13),
+                              decoration: _inputDecoration(
+                                label: 'Age Group (For Triage)',
+                                prefixIcon: Icons.groups_outlined,
+                                isDark: isDark,
+                              ),
+                              items: _ageBands.map((band) {
+                                return DropdownMenuItem(
+                                  value: band['value'],
+                                  child: Text(band['label']!, style: TextStyle(color: textPrimary, fontSize: 12)),
+                                );
+                              }).toList(),
+                              onChanged: (val) {
+                                if (val != null) setState(() => _selectedAgeBand = val);
+                              },
+                            ),
+                          ],
+                          const SizedBox(height: 14),
+
+                          // ── OPTIONAL MEDICAL BASICS ──────────────────────────
+                          DropdownButtonFormField<String>(
+                            value: _selectedBloodGroup,
+                            dropdownColor: cardBg,
+                            style: TextStyle(color: textPrimary, fontSize: 13),
+                            decoration: _inputDecoration(
+                              label: 'Blood Group (Optional)',
+                              prefixIcon: Icons.bloodtype_outlined,
+                              isDark: isDark,
+                            ),
+                            items: _bloodGroups.map((bg) {
+                              return DropdownMenuItem(
+                                value: bg,
+                                child: Text(bg, style: TextStyle(color: textPrimary, fontSize: 13)),
+                              );
+                            }).toList(),
+                            onChanged: (val) {
+                              if (val != null) setState(() => _selectedBloodGroup = val);
+                            },
+                          ),
+                          const SizedBox(height: 12),
+
+                          TextFormField(
+                            controller: _allergiesController,
+                            style: TextStyle(color: textPrimary, fontSize: 13),
+                            decoration: _inputDecoration(
+                              label: 'Known Allergies (Optional)',
+                              prefixIcon: Icons.warning_amber_rounded,
+                              hintText: 'e.g. Penicillin, NSAIDs',
+                              isDark: isDark,
+                            ),
+                          ),
+                          const SizedBox(height: 14),
+
+                          // ── MATERNAL-SPECIFIC ONBOARDING FIELDS ──────────────
                           if (_selectedPlan == 'maternal') ...[
                             Container(
                               padding: const EdgeInsets.all(14),
@@ -658,105 +833,114 @@ class _AuthScreenState extends State<AuthScreen> {
                                 crossAxisAlignment: CrossAxisAlignment.start,
                                 children: [
                                   Row(
-                                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
                                     children: [
+                                      const Text('🌸 ', style: TextStyle(fontSize: 16)),
                                       const Text(
-                                        'Current Gestational Age:',
-                                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w700),
-                                      ),
-                                      Container(
-                                        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
-                                        decoration: BoxDecoration(
-                                          color: const Color(0xFFEC4899),
-                                          borderRadius: BorderRadius.circular(8),
-                                        ),
-                                        child: Text(
-                                          'Week $_gestationalWeeks • ${_getTrimesterLabel(_gestationalWeeks)}',
-                                          style: const TextStyle(
-                                            color: Colors.white,
-                                            fontSize: 10,
-                                            fontWeight: FontWeight.w900,
-                                          ),
+                                        'Maternal Care Setup',
+                                        style: TextStyle(
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w800,
+                                          color: Color(0xFFEC4899),
                                         ),
                                       ),
                                     ],
                                   ),
-                                  Slider(
-                                    value: _gestationalWeeks.toDouble(),
-                                    min: 4,
-                                    max: 42,
-                                    divisions: 38,
-                                    activeColor: const Color(0xFFEC4899),
-                                    onChanged: (val) {
-                                      setState(() => _gestationalWeeks = val.round());
-                                    },
-                                  ),
-                                  const SizedBox(height: 6),
+                                  const SizedBox(height: 10),
+
+                                  // Estimated Due Date (EDD) Picker
                                   TextFormField(
                                     controller: _eddController,
+                                    readOnly: true,
                                     style: TextStyle(color: textPrimary, fontSize: 13),
+                                    onTap: () => _pickDate(
+                                      controller: _eddController,
+                                      title: 'Select Estimated Due Date (EDD)',
+                                      initialDate: DateTime.now().add(const Duration(days: 60)),
+                                      firstDate: DateTime.now().subtract(const Duration(days: 14)),
+                                      lastDate: DateTime.now().add(const Duration(days: 294)),
+                                      onSelected: () {
+                                        // Auto-derive LMP if empty
+                                        if (_lmpController.text.isEmpty && _eddController.text.isNotEmpty) {
+                                          final edd = DateTime.tryParse(_eddController.text);
+                                          if (edd != null) {
+                                            final lmp = edd.subtract(const Duration(days: 280));
+                                            _lmpController.text = "${lmp.year.toString().padLeft(4, '0')}-"
+                                                "${lmp.month.toString().padLeft(2, '0')}-"
+                                                "${lmp.day.toString().padLeft(2, '0')}";
+                                          }
+                                        }
+                                      },
+                                    ),
                                     decoration: _inputDecoration(
-                                      label: 'Estimated Due Date (EDD e.g., 2026-12-15)',
-                                      prefixIcon: Icons.calendar_today_rounded,
+                                      label: 'Estimated Due Date (EDD) *',
+                                      prefixIcon: Icons.event_rounded,
+                                      hintText: 'Tap to pick due date',
                                       isDark: isDark,
                                     ),
+                                    validator: (val) {
+                                      if (_isSignUp && _selectedPlan == 'maternal' && (val == null || val.trim().isEmpty) && _lmpController.text.trim().isEmpty) {
+                                        return 'Please provide EDD or LMP date';
+                                      }
+                                      return null;
+                                    },
+                                  ),
+                                  const SizedBox(height: 10),
+
+                                  // Read-only computed gestational age badge
+                                  if (weeks != null) ...[
+                                    Container(
+                                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+                                      decoration: BoxDecoration(
+                                        color: const Color(0xFFEC4899).withValues(alpha: 0.15),
+                                        borderRadius: BorderRadius.circular(8),
+                                      ),
+                                      child: Row(
+                                        children: [
+                                          const Icon(Icons.info_outline, size: 16, color: Color(0xFFEC4899)),
+                                          const SizedBox(width: 8),
+                                          Text(
+                                            'Computed: Week $weeks • ${_getTrimesterLabel(weeks)}',
+                                            style: const TextStyle(
+                                              color: Color(0xFFEC4899),
+                                              fontWeight: FontWeight.w800,
+                                              fontSize: 12,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                    const SizedBox(height: 10),
+                                  ],
+
+                                  // Parity (Optional)
+                                  TextFormField(
+                                    controller: _parityController,
+                                    style: TextStyle(color: textPrimary, fontSize: 13),
+                                    decoration: _inputDecoration(
+                                      label: 'Parity / Gravida (Optional e.g. G2P1)',
+                                      prefixIcon: Icons.pregnant_woman_rounded,
+                                      isDark: isDark,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 10),
+
+                                  // Previous C-Section Chip
+                                  FilterChip(
+                                    label: const Text('Previous C-Section', style: TextStyle(fontSize: 12)),
+                                    selected: _hasPreviousCSection,
+                                    selectedColor: const Color(0xFFEC4899),
+                                    checkmarkColor: Colors.white,
+                                    labelStyle: TextStyle(
+                                      color: _hasPreviousCSection ? Colors.white : textPrimary,
+                                      fontWeight: _hasPreviousCSection ? FontWeight.w700 : FontWeight.normal,
+                                    ),
+                                    onSelected: (val) => setState(() => _hasPreviousCSection = val),
                                   ),
                                 ],
                               ),
                             ),
                             const SizedBox(height: 14),
                           ],
-
-                          // Blood Group Selection
-                          DropdownButtonFormField<String>(
-                            value: _selectedBloodGroup,
-                            dropdownColor: cardBg,
-                            style: TextStyle(color: textPrimary, fontSize: 13),
-                            decoration: _inputDecoration(
-                              label: 'Blood Group',
-                              prefixIcon: Icons.bloodtype_rounded,
-                              isDark: isDark,
-                            ),
-                            items: _bloodGroups.map((bg) {
-                              return DropdownMenuItem(
-                                value: bg,
-                                child: Text(
-                                  bg,
-                                  style: TextStyle(
-                                    color: bg.contains('O-') ? Colors.redAccent : textPrimary,
-                                    fontWeight: bg.contains('O-') ? FontWeight.bold : FontWeight.normal,
-                                  ),
-                                ),
-                              );
-                            }).toList(),
-                            onChanged: (val) {
-                              if (val != null) setState(() => _selectedBloodGroup = val);
-                            },
-                          ),
-                          const SizedBox(height: 14),
-
-                          // Preferred Hospital
-                          DropdownButtonFormField<String>(
-                            value: _preferredHospital,
-                            isExpanded: true,
-                            dropdownColor: cardBg,
-                            style: TextStyle(color: textPrimary, fontSize: 12),
-                            decoration: _inputDecoration(
-                              label: 'Preferred Partner Hospital',
-                              prefixIcon: Icons.local_hospital_outlined,
-                              isDark: isDark,
-                            ),
-                            items: _hospitals.map((h) {
-                              return DropdownMenuItem(
-                                value: h,
-                                child: Text(h, overflow: TextOverflow.ellipsis),
-                              );
-                            }).toList(),
-                            onChanged: (val) {
-                              if (val != null) setState(() => _preferredHospital = val);
-                            },
-                          ),
-                          const SizedBox(height: 18),
                         ],
 
                         // COMMON FIELDS (Email & Password)
