@@ -1223,7 +1223,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     actionLabel: 'View Shield',
                     onAction: () {
                       Navigator.of(ctx).pop();
-                      widget.onOpenShieldTab();
+                      widget.onOpenShieldTab?.call();
                     },
                     isDark: isDark,
                   ),
@@ -1242,7 +1242,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     actionLabel: 'Open Insights',
                     onAction: () {
                       Navigator.of(ctx).pop();
-                      widget.onOpenInsightsTab();
+                      widget.onOpenInsightsTab?.call();
                     },
                     isDark: isDark,
                   ),
@@ -1259,7 +1259,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     actionLabel: 'Log Now',
                     onAction: () {
                       Navigator.of(ctx).pop();
-                      widget.onOpenInsightsTab();
+                      widget.onOpenInsightsTab?.call();
                     },
                     isDark: isDark,
                   ),
