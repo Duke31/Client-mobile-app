@@ -5,6 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../models/member_profile.dart';
 import '../services/client_request_detail.dart';
+import '../services/location_service.dart';
 import '../theme/app_theme.dart';
 import 'history_screen.dart';
 import 'profile_screen.dart';
@@ -36,6 +37,9 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+
+    // Pre-warm high-accuracy GPS hardware in background so cold start / reinstall acquires immediate precision
+    const LocationService().warmUp();
 
     // Synchronously initialize profile from cached session metadata to eliminate SOS screen flash
     final user = _supabase.auth.currentUser;
