@@ -313,6 +313,21 @@ class LocationService {
     );
   }
 
+  /// Ensures location services are active and permissions are granted
+  Future<bool> ensurePermission() async {
+    try {
+      final enabled = await Geolocator.isLocationServiceEnabled();
+      if (!enabled) return false;
+      var perm = await Geolocator.checkPermission();
+      if (perm == LocationPermission.denied) {
+        perm = await Geolocator.requestPermission();
+      }
+      return perm == LocationPermission.whileInUse || perm == LocationPermission.always;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Forces a fresh satellite hardware GPS reading, bypassing any cached/stale coordinates.
   /// Used by the SOS map recenter button to recalibrate whenever the position is offset.
   Future<LocationFix> forceFreshGps({
