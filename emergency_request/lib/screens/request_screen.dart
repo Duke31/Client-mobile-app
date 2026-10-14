@@ -122,34 +122,49 @@ class RequestScreenState extends State<RequestScreen>
       _livePositionSub = _location.liveStream.listen((fix) {
         if (!mounted) return;
         final isFirst = _fix == null;
-        final moved = isFirst ||
-            Geolocator.distanceBetween(
-                  _fix!.latitude,
-                  _fix!.longitude,
-                  fix.latitude,
-                  fix.longitude,
-                ) > 12;
+        final currentAccuracy = _fix?.accuracyMeters ?? 9999.0;
+        final newAccuracy = fix.accuracyMeters ?? 9999.0;
 
-        setState(() {
-          _fix = fix;
-          _loadingLocation = false;
-        });
+        // Upgrade condition: previous fix was coarse (> 25m) and new fix is better (<= 25m),
+        // or new fix achieves sub-12m satellite precision.
+        final isAccuracyUpgrade = (currentAccuracy > 25.0 && newAccuracy <= 25.0) ||
+            (currentAccuracy > 15.0 && newAccuracy <= 12.0);
 
-        if (isFirst) {
-          try {
-            _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
-          } catch (_) {}
-        }
+        final distance = _fix != null
+            ? Geolocator.distanceBetween(
+                _fix!.latitude,
+                _fix!.longitude,
+                fix.latitude,
+                fix.longitude,
+              )
+            : 0.0;
 
-        if (moved) {
-          _geocoding.reverseGeocode(
-            latitude: fix.latitude,
-            longitude: fix.longitude,
-          ).then((addr) {
-            if (mounted && addr.isNotEmpty) {
-              setState(() => _address = addr);
-            }
+        final moved = isFirst || isAccuracyUpgrade || distance > 8;
+
+        // Prevent coarse fixes (> 30m) from overriding precision fixes (<= 25m)
+        if (isFirst || isAccuracyUpgrade || newAccuracy <= currentAccuracy + 5.0) {
+          setState(() {
+            _fix = fix;
+            _loadingLocation = false;
           });
+
+          // Always snap/recenter map when first fix arrives OR whenever precision upgrades from coarse to fine!
+          if (isFirst || isAccuracyUpgrade) {
+            try {
+              _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
+            } catch (_) {}
+          }
+
+          if (moved) {
+            _geocoding.reverseGeocode(
+              latitude: fix.latitude,
+              longitude: fix.longitude,
+            ).then((addr) {
+              if (mounted && addr.isNotEmpty) {
+                setState(() => _address = addr);
+              }
+            });
+          }
         }
       }, onError: (Object e) {
         debugPrint('Continuous live GPS telemetry notice: $e');
@@ -273,7 +288,11 @@ class RequestScreenState extends State<RequestScreen>
 
   Future<void> _loadLocation() async {
     final estimate = await _location.quickEstimate();
-    if (estimate != null && mounted) {
+    // Only apply estimate if it has true high accuracy (<= 25m)
+    if (estimate != null &&
+        estimate.accuracyMeters != null &&
+        estimate.accuracyMeters! <= 25.0 &&
+        mounted) {
       await _applyFix(estimate);
     }
 
@@ -842,9 +861,11 @@ class RequestScreenState extends State<RequestScreen>
                           color: const Color(0xFF07193F).withValues(alpha: 0.92),
                           borderRadius: BorderRadius.circular(16),
                           border: Border.all(
-                            color: accuracy != null && accuracy <= 25
+                            color: accuracy != null && accuracy <= 15
                                 ? const Color(0xFF00E676)
-                                : const Color(0xFF00D4FF),
+                                : (accuracy != null && accuracy <= 25
+                                    ? const Color(0xFF00D4FF)
+                                    : const Color(0xFFFFB74D)),
                             width: 1.1,
                           ),
                           boxShadow: [
@@ -858,18 +879,24 @@ class RequestScreenState extends State<RequestScreen>
                           mainAxisSize: MainAxisSize.min,
                           children: [
                             Icon(
-                              accuracy != null && accuracy <= 25
+                              accuracy != null && accuracy <= 15
                                   ? Icons.my_location_rounded
-                                  : Icons.gps_fixed_rounded,
+                                  : (accuracy != null && accuracy <= 25
+                                      ? Icons.gps_fixed_rounded
+                                      : Icons.satellite_alt_rounded),
                               size: 13,
-                              color: accuracy != null && accuracy <= 25
+                              color: accuracy != null && accuracy <= 15
                                   ? const Color(0xFF00E676)
-                                  : const Color(0xFF00D4FF),
+                                  : (accuracy != null && accuracy <= 25
+                                      ? const Color(0xFF00D4FF)
+                                      : const Color(0xFFFFB74D)),
                             ),
                             const SizedBox(width: 5),
                             Text(
                               accuracy != null
-                                  ? 'GPS Locked ±${accuracy.round()}m'
+                                  ? (accuracy <= 25
+                                      ? 'GPS Locked ±${accuracy.round()}m'
+                                      : 'Calibrating GPS (±${accuracy.round()}m)...')
                                   : 'Acquiring GPS...',
                               style: const TextStyle(
                                 color: Colors.white,
