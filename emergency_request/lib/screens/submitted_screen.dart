@@ -63,6 +63,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
   final TextEditingController _feedbackController = TextEditingController();
   bool _feedbackSubmitted = false;
   bool _isSubmittingFeedback = false;
+  bool _showDetailedPhases = false;
 
   late AnimationController _radarController;
   late Animation<double> _radarScale;
@@ -1046,6 +1047,29 @@ class _SubmittedScreenState extends State<SubmittedScreen>
             ],
           ),
           actions: [
+            Padding(
+              padding: const EdgeInsets.only(right: 4),
+              child: IconButton(
+                tooltip: 'Emergency Hotline (+2348133355709)',
+                icon: Container(
+                  padding: const EdgeInsets.all(6),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFF10B981).withValues(alpha: 0.15),
+                    shape: BoxShape.circle,
+                    border: Border.all(
+                      color: const Color(0xFF10B981).withValues(alpha: 0.6),
+                      width: 1.2,
+                    ),
+                  ),
+                  child: const Icon(
+                    Icons.phone_in_talk_rounded,
+                    color: Color(0xFF10B981),
+                    size: 16,
+                  ),
+                ),
+                onPressed: () => _callNumber('+2348133355709'),
+              ),
+            ),
             Container(
               margin: const EdgeInsets.only(right: 12),
               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
@@ -1222,289 +1246,25 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                   if (_isCompleted)
                     _buildLiveFeedbackCard(isDark, cardColor, cardBorder, textPrimary, textMuted),
                 ] else ...[
-                  // 2. LIVE INTERACTIVE MULTI-PHASE MILESTONE STEPPER
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
-                    decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: cardBorder),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Icon(
-                              Icons.timeline_rounded,
-                              size: 16,
-                              color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
-                            ),
-                            const SizedBox(width: 6),
-                            Text(
-                              'EMERGENCY DISPATCH PHASES',
-                              style: TextStyle(
-                                color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
-                                fontSize: 10,
-                                fontWeight: FontWeight.bold,
-                                letterSpacing: 0.8,
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              'PHASE ${activePhase + 1} OF ${_orderedPhases.length}',
-                              style: const TextStyle(
-                                color: Color(0xFF00E676),
-                                fontSize: 10,
-                                fontWeight: FontWeight.w900,
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        ListView.builder(
-                          shrinkWrap: true,
-                          physics: const NeverScrollableScrollPhysics(),
-                          itemCount: _orderedPhases.length,
-                          itemBuilder: (context, idx) {
-                            final isDone = idx < activePhase;
-                            final isCurrent = idx == activePhase;
-                            final isPending = idx > activePhase;
-                            final isLast = idx == _orderedPhases.length - 1;
-
-                            return IntrinsicHeight(
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  Column(
-                                    children: [
-                                      Container(
-                                        width: 20,
-                                        height: 20,
-                                        decoration: BoxDecoration(
-                                          shape: BoxShape.circle,
-                                          color: isDone
-                                              ? const Color(0xFF00E676)
-                                              : (isCurrent
-                                                  ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
-                                                  : (isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1))),
-                                        ),
-                                        child: Center(
-                                          child: isDone
-                                              ? const Icon(Icons.check, size: 12, color: Colors.black)
-                                              : (isCurrent
-                                                  ? const SizedBox(
-                                                      width: 10,
-                                                      height: 10,
-                                                      child: CircularProgressIndicator(
-                                                        strokeWidth: 2,
-                                                        color: Colors.white,
-                                                      ),
-                                                    )
-                                                  : Container(
-                                                      width: 6,
-                                                      height: 6,
-                                                      decoration: BoxDecoration(
-                                                        shape: BoxShape.circle,
-                                                        color: isDark ? Colors.white38 : Colors.grey.shade400,
-                                                      ),
-                                                    )),
-                                        ),
-                                      ),
-                                      if (!isLast)
-                                        Expanded(
-                                          child: Container(
-                                            width: 2,
-                                            color: isDone
-                                                ? const Color(0xFF00E676)
-                                                : (isDark ? const Color(0xFF1E3A8A) : const Color(0xFFCBD5E1)),
-                                          ),
-                                        ),
-                                    ],
-                                  ),
-                                  const SizedBox(width: 10),
-                                  Expanded(
-                                    child: Padding(
-                                      padding: const EdgeInsets.only(bottom: 12),
-                                      child: Column(
-                                        crossAxisAlignment: CrossAxisAlignment.start,
-                                        children: [
-                                          Text(
-                                            _phaseLabels[idx],
-                                            style: TextStyle(
-                                              fontSize: 12,
-                                              fontWeight: isCurrent ? FontWeight.w900 : FontWeight.w600,
-                                              color: isDone
-                                                  ? const Color(0xFF00E676)
-                                                  : (isCurrent
-                                                      ? textPrimary
-                                                      : textMuted),
-                                            ),
-                                          ),
-                                          if (isCurrent)
-                                            Padding(
-                                              padding: const EdgeInsets.only(top: 2),
-                                              child: Text(
-                                                _descriptionText,
-                                                style: TextStyle(
-                                                  fontSize: 10.5,
-                                                  color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
-                                                ),
-                                              ),
-                                            ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            );
-                          },
-                        ),
-                      ],
-                    ),
+                  // 2. SMART COMPACT MISSION STEPPER & INFO BAR
+                  _buildSmartMissionStepper(
+                    isDark: isDark,
+                    cardColor: cardColor,
+                    cardBorder: cardBorder,
+                    textPrimary: textPrimary,
+                    textSecondary: textSecondary,
+                    textMuted: textMuted,
+                    activePhase: activePhase,
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: 12),
 
-                  // 3. SIMPLIFIED EMERGENCY STATUS CARD (Clean & Professional)
-                  Container(
-                    padding: const EdgeInsets.all(18),
-                    decoration: BoxDecoration(
-                      color: cardColor,
-                      borderRadius: BorderRadius.circular(16),
-                      border: Border.all(color: cardBorder),
-                      boxShadow: isDark
-                          ? []
-                          : [
-                              BoxShadow(
-                                color: Colors.black.withValues(alpha: 0.04),
-                                blurRadius: 10,
-                                offset: const Offset(0, 3),
-                              ),
-                            ],
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              'Request Reference',
-                              style: TextStyle(
-                                color: textMuted,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const Spacer(),
-                            Text(
-                              '#$_shortId',
-                              style: TextStyle(
-                                color: textPrimary,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w800,
-                                fontFamily: 'monospace',
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            IconButton(
-                              icon: Icon(Icons.copy_rounded, size: 15, color: textSecondary),
-                              padding: EdgeInsets.zero,
-                              constraints: const BoxConstraints(),
-                              tooltip: 'Copy ID',
-                              onPressed: () {
-                                if (_requestId != null) {
-                                  Clipboard.setData(ClipboardData(text: _requestId!));
-                                  ScaffoldMessenger.of(context).showSnackBar(
-                                    const SnackBar(
-                                      content: Text('Request ID copied to clipboard'),
-                                      duration: Duration(seconds: 2),
-                                      behavior: SnackBarBehavior.floating,
-                                    ),
-                                  );
-                                }
-                              },
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 20),
-                        Row(
-                          children: [
-                            Text(
-                              'Current Lifecycle State',
-                              style: TextStyle(
-                                color: textMuted,
-                                fontSize: 13,
-                                fontWeight: FontWeight.w500,
-                              ),
-                            ),
-                            const Spacer(),
-                            Container(
-                              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                              decoration: BoxDecoration(
-                                color: (_isCompleted
-                                        ? const Color(0xFF00E676)
-                                        : (_canTrackLive
-                                            ? const Color(0xFF00D4FF)
-                                            : const Color(0xFFFFA000)))
-                                    .withValues(alpha: isDark ? 0.2 : 0.12),
-                                borderRadius: BorderRadius.circular(20),
-                                border: Border.all(
-                                  color: (_isCompleted
-                                          ? const Color(0xFF00E676)
-                                          : (_canTrackLive
-                                              ? const Color(0xFF00D4FF)
-                                              : const Color(0xFFFFA000)))
-                                      .withValues(alpha: isDark ? 0.5 : 0.4),
-                                ),
-                              ),
-                              child: Text(
-                                _currentStatus,
-                                style: TextStyle(
-                                  color: _isCompleted
-                                      ? const Color(0xFF00E676)
-                                      : (_canTrackLive
-                                          ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
-                                          : const Color(0xFFE65100)),
-                                  fontSize: 11.5,
-                                  fontWeight: FontWeight.w800,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const Divider(height: 20),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            SizedBox(
-                              width: 80,
-                              child: Text(
-                                'Location',
-                                style: TextStyle(
-                                  color: textMuted,
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500,
-                                ),
-                              ),
-                            ),
-                            const SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                widget.address ?? widget.patientAddress ?? 'Scene Location (GPS Locked)',
-                                textAlign: TextAlign.right,
-                                style: TextStyle(
-                                  color: textPrimary,
-                                  fontSize: 12.5,
-                                  fontWeight: FontWeight.w600,
-                                  height: 1.35,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ],
-                    ),
+                  _buildCompactMissionInfoBar(
+                    isDark: isDark,
+                    cardColor: cardColor,
+                    cardBorder: cardBorder,
+                    textPrimary: textPrimary,
+                    textSecondary: textSecondary,
+                    textMuted: textMuted,
                   ),
                   const SizedBox(height: 14),
 
@@ -1828,6 +1588,17 @@ class _SubmittedScreenState extends State<SubmittedScreen>
                     ),
                   ),
                   const SizedBox(height: 14),
+
+                  // 4b. CENTRAL DISPATCH FALLBACK CARD (With 1-Tap Call & WhatsApp)
+                  _buildCentralDispatchFallbackCard(
+                    isDark: isDark,
+                    cardColor: cardColor,
+                    cardBorder: cardBorder,
+                    textPrimary: textPrimary,
+                    textMuted: textMuted,
+                  ),
+                  const SizedBox(height: 14),
+
                   // 5. QUICK FIRST AID CARD (Only shown when waiting for ambulance!)
                   if (!_isCompleted && !_isCancelled)
                   Container(
@@ -1922,6 +1693,433 @@ class _SubmittedScreenState extends State<SubmittedScreen>
             ),
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildSmartMissionStepper({
+    required bool isDark,
+    required Color cardColor,
+    required Color cardBorder,
+    required Color textPrimary,
+    required Color textSecondary,
+    required Color textMuted,
+    required int activePhase,
+  }) {
+    final stages = [
+      {'label': 'Triage', 'icon': Icons.sensors_rounded},
+      {'label': 'Hospital Bay', 'icon': Icons.local_hospital_rounded},
+      {'label': 'Ambulance', 'icon': Icons.directions_car_rounded},
+      {'label': 'ER Intake', 'icon': Icons.check_circle_rounded},
+    ];
+
+    int activeStage = 0;
+    if (activePhase >= 7) {
+      activeStage = 3;
+    } else if (activePhase >= 3) {
+      activeStage = 2;
+    } else if (activePhase >= 1) {
+      activeStage = 1;
+    }
+
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: cardBorder),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Icon(
+                Icons.radar_rounded,
+                size: 16,
+                color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                'LIVE MISSION TIMELINE',
+                style: TextStyle(
+                  color: isDark ? const Color(0xFF81D4FA) : const Color(0xFF0284C7),
+                  fontSize: 10,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.8,
+                ),
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF00E676).withValues(alpha: 0.15),
+                  borderRadius: BorderRadius.circular(20),
+                  border: Border.all(color: const Color(0xFF00E676).withValues(alpha: 0.5)),
+                ),
+                child: Text(
+                  'PHASE ${activePhase + 1} OF ${_orderedPhases.length}',
+                  style: const TextStyle(
+                    color: Color(0xFF00E676),
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w900,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 12),
+          // Horizontal 4-Stage Progress Stepper
+          Row(
+            children: List.generate(stages.length, (idx) {
+              final isPassed = idx < activeStage;
+              final isCurrent = idx == activeStage;
+              final color = isPassed
+                  ? const Color(0xFF00E676)
+                  : (isCurrent
+                      ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7))
+                      : (isDark ? Colors.white24 : Colors.grey.shade300));
+
+              return Expanded(
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            height: 4,
+                            decoration: BoxDecoration(
+                              color: color,
+                              borderRadius: BorderRadius.circular(2),
+                              boxShadow: isCurrent
+                                  ? [
+                                      BoxShadow(
+                                        color: color.withValues(alpha: 0.6),
+                                        blurRadius: 4,
+                                        spreadRadius: 1,
+                                      ),
+                                    ]
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: 6),
+                          Text(
+                            stages[idx]['label'] as String,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: TextStyle(
+                              fontSize: 9.5,
+                              fontWeight: isCurrent ? FontWeight.w900 : FontWeight.w600,
+                              color: isCurrent
+                                  ? (isDark ? Colors.white : const Color(0xFF0F172A))
+                                  : (isPassed ? const Color(0xFF00E676) : textMuted),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (idx < stages.length - 1) const SizedBox(width: 4),
+                  ],
+                ),
+              );
+            }),
+          ),
+          const SizedBox(height: 10),
+          // Current Active Phase Callout & Expand Toggle
+          InkWell(
+            onTap: () {
+              setState(() {
+                _showDetailedPhases = !_showDetailedPhases;
+              });
+            },
+            borderRadius: BorderRadius.circular(10),
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: isDark ? const Color(0xFF061536).withValues(alpha: 0.5) : const Color(0xFFF1F5F9),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 7,
+                    height: 7,
+                    decoration: const BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: Color(0xFF00E676),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          _phaseLabels[activePhase],
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.bold,
+                            color: textPrimary,
+                          ),
+                        ),
+                        Text(
+                          _descriptionText,
+                          maxLines: _showDetailedPhases ? 4 : 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 10,
+                            color: textMuted,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  Icon(
+                    _showDetailedPhases ? Icons.keyboard_arrow_up_rounded : Icons.keyboard_arrow_down_rounded,
+                    size: 18,
+                    color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          // Expandable detailed checklist if user taps to inspect
+          if (_showDetailedPhases) ...[
+            const SizedBox(height: 10),
+            const Divider(height: 1),
+            const SizedBox(height: 8),
+            ListView.builder(
+              shrinkWrap: true,
+              physics: const NeverScrollableScrollPhysics(),
+              itemCount: _orderedPhases.length,
+              itemBuilder: (context, idx) {
+                final isDone = idx < activePhase;
+                final isCurrent = idx == activePhase;
+                return Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 2.5),
+                  child: Row(
+                    children: [
+                      Icon(
+                        isDone
+                            ? Icons.check_circle_rounded
+                            : (isCurrent ? Icons.radio_button_checked_rounded : Icons.radio_button_unchecked_rounded),
+                        size: 13,
+                        color: isDone
+                            ? const Color(0xFF00E676)
+                            : (isCurrent ? (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7)) : textMuted),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          _phaseLabels[idx],
+                          style: TextStyle(
+                            fontSize: 10.5,
+                            fontWeight: isCurrent ? FontWeight.bold : FontWeight.w500,
+                            color: isDone
+                                ? const Color(0xFF00E676)
+                                : (isCurrent ? textPrimary : textMuted),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCompactMissionInfoBar({
+    required bool isDark,
+    required Color cardColor,
+    required Color cardBorder,
+    required Color textPrimary,
+    required Color textSecondary,
+    required Color textMuted,
+  }) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: cardBorder),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.location_on_rounded, size: 16, color: Color(0xFF00D4FF)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Pickup Landmark / GPS',
+                  style: TextStyle(
+                    color: textMuted,
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                Text(
+                  widget.address ?? widget.patientAddress ?? 'Scene Location (GPS Locked)',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    color: textPrimary,
+                    fontSize: 11.5,
+                    fontWeight: FontWeight.bold,
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(width: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+            decoration: BoxDecoration(
+              color: isDark ? const Color(0xFF0D2559) : const Color(0xFFE0F2FE),
+              borderRadius: BorderRadius.circular(8),
+              border: Border.all(color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7), width: 0.8),
+            ),
+            child: InkWell(
+              onTap: () {
+                if (_requestId != null) {
+                  Clipboard.setData(ClipboardData(text: _requestId!));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Request ID copied to clipboard'),
+                      duration: Duration(seconds: 2),
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                }
+              },
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    '#$_shortId',
+                    style: TextStyle(
+                      color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7),
+                      fontSize: 10.5,
+                      fontWeight: FontWeight.w800,
+                      fontFamily: 'monospace',
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  Icon(Icons.copy_rounded, size: 12, color: isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7)),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCentralDispatchFallbackCard({
+    required bool isDark,
+    required Color cardColor,
+    required Color cardBorder,
+    required Color textPrimary,
+    required Color textMuted,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: cardColor,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(
+          color: const Color(0xFF10B981).withValues(alpha: 0.4),
+          width: 1.2,
+        ),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(
+                  color: const Color(0xFF10B981).withValues(alpha: 0.18),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(Icons.headset_mic_rounded, color: Color(0xFF10B981), size: 18),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'CENTRAL DISPATCH OPERATIONS (24/7)',
+                      style: TextStyle(
+                        color: isDark ? const Color(0xFF6EE7B7) : const Color(0xFF047857),
+                        fontSize: 9.5,
+                        fontWeight: FontWeight.bold,
+                        letterSpacing: 0.7,
+                      ),
+                    ),
+                    const Text(
+                      'Emergency Triage Hotline: +234 813 335 5709',
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
+              Expanded(
+                child: FilledButton.icon(
+                  style: FilledButton.styleFrom(
+                    backgroundColor: const Color(0xFF10B981),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _callNumber('+2348133355709'),
+                  icon: const Icon(Icons.phone_in_talk_rounded, size: 16),
+                  label: const Text(
+                    'Call Central Hotline',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: ElevatedButton.icon(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF25D366),
+                    foregroundColor: Colors.white,
+                    elevation: 0,
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(10)),
+                  ),
+                  onPressed: () => _openWhatsApp(
+                    '+2348133355709',
+                    'Hello Solace Central Dispatch, I need assistance regarding active emergency request ${_requestId ?? ""}.',
+                  ),
+                  icon: const Icon(Icons.chat_rounded, size: 16),
+                  label: const Text(
+                    'WhatsApp Desk',
+                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 12),
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }
@@ -2114,7 +2312,7 @@ class _SubmittedScreenState extends State<SubmittedScreen>
             children: [
               '⚡ Rapid Arrival',
               '🩺 Expert Care',
-              '🏥 Direct-to-Bed Bypass',
+              '🏥 Zero-Delay Hospital Intake',
               '❤️ Compassionate Paramedics',
               '⭐ Clean Ambulance',
             ].map((tag) {
