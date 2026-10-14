@@ -1,8 +1,10 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
 import '../models/member_profile.dart';
 import '../services/maternal_care_service.dart';
+import '../models/maternal_content_item.dart';
+import '../services/maternal_content_service.dart';
 import '../theme/app_theme.dart';
 
 class MaternalTodayTab extends StatefulWidget {
@@ -31,13 +33,39 @@ class MaternalTodayTab extends StatefulWidget {
 
 class _MaternalTodayTabState extends State<MaternalTodayTab> {
   final MaternalCareService _maternalService = MaternalCareService();
+  final MaternalContentService _contentService = MaternalContentService();
   int _selectedDayIndex = 3; // Index in the 7-day strip (middle = Today)
   int _unreadAlertCount = 2; // Unread notification badge counter
+  List<MaternalContentItem> _dailyGuidanceCards = [];
+  bool _loadingGuidance = true;
 
   @override
   void initState() {
     super.initState();
     _maternalService.addListener(_onServiceUpdate);
+    _loadDailyGuidance();
+  }
+
+  @override
+  void didUpdateWidget(covariant MaternalTodayTab oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.profile.computedWeeks != widget.profile.computedWeeks ||
+        oldWidget.profile.edd != widget.profile.edd ||
+        oldWidget.profile.lmpDate != widget.profile.lmpDate) {
+      _loadDailyGuidance();
+    }
+  }
+
+  Future<void> _loadDailyGuidance() async {
+    final cards = await _contentService.getDailyGuidanceCards(
+      gestationalWeek: widget.profile.computedWeeks,
+    );
+    if (mounted) {
+      setState(() {
+        _dailyGuidanceCards = cards;
+        _loadingGuidance = false;
+      });
+    }
   }
 
   @override
@@ -121,7 +149,11 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 _buildDailyInsightsSection(isDark),
                 const SizedBox(height: 20),
 
-                // ── 5. Dedicated Obstetric Emergency 1-Tap SOS Shield ────────
+                // ── 5. Maternal Pre-written Daily Clinical Library Stack ──────
+                _buildMaternalGuidanceLibrarySection(isDark),
+                const SizedBox(height: 20),
+
+                // ── 6. Dedicated Obstetric Emergency 1-Tap SOS Shield ────────
                 _buildObstetricSosBanner(isDark),
                 const SizedBox(height: 16),
               ],
@@ -1594,5 +1626,380 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
         );
       },
     );
+  }
+
+  // ── Maternal Pre-written Daily Clinical Library Stack (Strict Rules 1-4) ───
+  Widget _buildMaternalGuidanceLibrarySection(bool isDark) {
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final subColor = isDark ? Colors.white60 : const Color(0xFF64748B);
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // Section Header with Clinical Badge
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(7),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFFE8DC),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: const Icon(
+                Icons.medical_services_outlined,
+                color: Color(0xFFD84315),
+                size: 18,
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Daily Clinical Guidance',
+                    style: TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w900,
+                      color: textColor,
+                      letterSpacing: -0.2,
+                    ),
+                  ),
+                  Text(
+                    'Week $_weeks Protocol • Curated obstetric evidence library',
+                    style: TextStyle(
+                      fontSize: 11,
+                      fontWeight: FontWeight.w500,
+                      color: subColor,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFF8A65).withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(
+                  color: const Color(0xFFFF8A65).withValues(alpha: 0.4),
+                  width: 1.0,
+                ),
+              ),
+              child: Text(
+                'Week $_weeks',
+                style: const TextStyle(
+                  fontSize: 11,
+                  fontWeight: FontWeight.w800,
+                  color: Color(0xFFD84315),
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 14),
+
+        // 3-Card Stack (Safety + Tip + Secondary)
+        if (_loadingGuidance && _dailyGuidanceCards.isEmpty)
+          const Center(
+            child: Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: CircularProgressIndicator(
+                strokeWidth: 2.5,
+                valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF8A65)),
+              ),
+            ),
+          )
+        else ...[
+          for (int i = 0; i < _dailyGuidanceCards.length; i++) ...[
+            _buildGuidanceCard(_dailyGuidanceCards[i], isDark),
+            if (i < _dailyGuidanceCards.length - 1) const SizedBox(height: 12),
+          ],
+        ],
+
+        // Strict Rule 2: Educational Disclaimer Container
+        Container(
+          margin: const EdgeInsets.only(top: 12),
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: isDark ? const Color(0xFF334155) : const Color(0xFFE2E8F0),
+            ),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Padding(
+                padding: EdgeInsets.only(top: 1),
+                child: Icon(
+                  Icons.info_outline_rounded,
+                  size: 15,
+                  color: Color(0xFF64748B),
+                ),
+              ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: Text(
+                  MaternalContentService.educationalDisclaimer,
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                    height: 1.35,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildGuidanceCard(MaternalContentItem item, bool isDark) {
+    // Style configurations based on slot
+    Color cardBg;
+    Color borderColor;
+    Color tagColor;
+    Color tagBg;
+    IconData headerIcon;
+
+    if (item.isSafety) {
+      // Urgent Safety Red/Rose Alert Card
+      cardBg = isDark ? const Color(0xFF261214) : const Color(0xFFFFF1F2);
+      borderColor = isDark ? const Color(0xFF881337) : const Color(0xFFFDA4AF);
+      tagColor = const Color(0xFFE11D48);
+      tagBg = const Color(0xFFE11D48).withValues(alpha: 0.12);
+      headerIcon = Icons.warning_amber_rounded;
+    } else if (item.isTip) {
+      // Clinical Daily Tip Card
+      cardBg = isDark ? const Color(0xFF0C2427) : const Color(0xFFF0FDFA);
+      borderColor = isDark ? const Color(0xFF134E4A) : const Color(0xFF99F6E4);
+      tagColor = const Color(0xFF0D9488);
+      tagBg = const Color(0xFF0D9488).withValues(alpha: 0.12);
+      headerIcon = Icons.lightbulb_outline_rounded;
+    } else {
+      // Secondary Slots (nutrition, comfort, prepare, mind, review)
+      switch (item.slot) {
+        case 'nutrition':
+          cardBg = isDark ? const Color(0xFF0A2619) : const Color(0xFFECFDF5);
+          borderColor = isDark ? const Color(0xFF064E3B) : const Color(0xFFA7F3D0);
+          tagColor = const Color(0xFF059669);
+          tagBg = const Color(0xFF059669).withValues(alpha: 0.12);
+          headerIcon = Icons.restaurant_rounded;
+          break;
+        case 'comfort':
+          cardBg = isDark ? const Color(0xFF0A2233) : const Color(0xFFF0F9FF);
+          borderColor = isDark ? const Color(0xFF075985) : const Color(0xFFBAE6FD);
+          tagColor = const Color(0xFF0284C7);
+          tagBg = const Color(0xFF0284C7).withValues(alpha: 0.12);
+          headerIcon = Icons.spa_outlined;
+          break;
+        case 'prepare':
+          cardBg = isDark ? const Color(0xFF1E1436) : const Color(0xFFF5F3FF);
+          borderColor = isDark ? const Color(0xFF5B21B6) : const Color(0xFFDDD6FE);
+          tagColor = const Color(0xFF7C3AED);
+          tagBg = const Color(0xFF7C3AED).withValues(alpha: 0.12);
+          headerIcon = Icons.fact_check_outlined;
+          break;
+        case 'mind':
+          cardBg = isDark ? const Color(0xFF2C101F) : const Color(0xFFFDF2F8);
+          borderColor = isDark ? const Color(0xFF831843) : const Color(0xFFFBCFE8);
+          tagColor = const Color(0xFFDB2777);
+          tagBg = const Color(0xFFDB2777).withValues(alpha: 0.12);
+          headerIcon = Icons.favorite_border_rounded;
+          break;
+        case 'review':
+        default:
+          cardBg = isDark ? const Color(0xFF2A1F0D) : const Color(0xFFFFFBEB);
+          borderColor = isDark ? const Color(0xFF78350F) : const Color(0xFFFDE68A);
+          tagColor = const Color(0xFFD97706);
+          tagBg = const Color(0xFFD97706).withValues(alpha: 0.12);
+          headerIcon = Icons.checklist_rounded;
+          break;
+      }
+    }
+
+    final titleColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final bodyColor = isDark ? Colors.white.withValues(alpha: 0.85) : const Color(0xFF334155);
+
+    final hasCta = item.ctaType != 'none' && item.ctaLabel != null && item.ctaLabel!.isNotEmpty;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor, width: 1.5),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.04),
+            blurRadius: 10,
+            offset: const Offset(0, 3),
+          ),
+        ],
+      ),
+      padding: const EdgeInsets.all(16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          // Card Tag & Slot Header
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+                decoration: BoxDecoration(
+                  color: tagBg,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(headerIcon, size: 13, color: tagColor),
+                    const SizedBox(width: 5),
+                    Text(
+                      item.slotDisplayLabel,
+                      style: TextStyle(
+                        fontSize: 10,
+                        fontWeight: FontWeight.w900,
+                        color: tagColor,
+                        letterSpacing: 0.3,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const Spacer(),
+              if (item.weekday != null)
+                Text(
+                  _weekdayName(item.weekday!),
+                  style: TextStyle(
+                    fontSize: 10.5,
+                    fontWeight: FontWeight.w600,
+                    color: isDark ? Colors.white38 : const Color(0xFF94A3B8),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 10),
+
+          // Title
+          Text(
+            item.title,
+            style: TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w900,
+              color: titleColor,
+              letterSpacing: -0.2,
+            ),
+          ),
+          const SizedBox(height: 6),
+
+          // Body text
+          Text(
+            item.body,
+            style: TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w400,
+              color: bodyColor,
+              height: 1.45,
+            ),
+          ),
+
+          // Action CTA Button
+          if (hasCta) ...[
+            const SizedBox(height: 12),
+            _buildCardCtaButton(item, isDark),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildCardCtaButton(MaternalContentItem item, bool isDark) {
+    if (item.ctaType == 'sos' || item.ctaType == 'red_flag') {
+      return SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          style: FilledButton.styleFrom(
+            backgroundColor: const Color(0xFFE11D48),
+            foregroundColor: Colors.white,
+            padding: const EdgeInsets.symmetric(vertical: 11, horizontal: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            elevation: 2,
+          ),
+          onPressed: () {
+            HapticFeedback.heavyImpact();
+            widget.onTriggerSos();
+          },
+          icon: const Icon(Icons.emergency_rounded, size: 18),
+          label: Text(
+            item.ctaLabel ?? 'Trigger Solace SOS',
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w900,
+              letterSpacing: 0.2,
+            ),
+          ),
+        ),
+      );
+    }
+
+    if (item.ctaType == 'profile') {
+      return SizedBox(
+        width: double.infinity,
+        child: OutlinedButton.icon(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: isDark ? const Color(0xFFA78BFA) : const Color(0xFF7C3AED),
+            side: BorderSide(
+              color: isDark ? const Color(0xFFA78BFA) : const Color(0xFF7C3AED),
+              width: 1.5,
+            ),
+            padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 14),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+          ),
+          onPressed: () {
+            HapticFeedback.mediumImpact();
+            widget.onOpenShieldTab?.call();
+          },
+          icon: const Icon(Icons.badge_rounded, size: 17),
+          label: Text(
+            item.ctaLabel ?? 'Open Medical ID',
+            style: const TextStyle(
+              fontSize: 12.5,
+              fontWeight: FontWeight.w800,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return const SizedBox.shrink();
+  }
+
+  String _weekdayName(int weekday) {
+    switch (weekday) {
+      case 0:
+        return 'Sunday';
+      case 1:
+        return 'Monday';
+      case 2:
+        return 'Tuesday';
+      case 3:
+        return 'Wednesday';
+      case 4:
+        return 'Thursday';
+      case 5:
+        return 'Friday';
+      case 6:
+        return 'Saturday';
+      default:
+        return 'Daily';
+    }
   }
 }
