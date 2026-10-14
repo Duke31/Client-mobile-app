@@ -27,6 +27,7 @@ class _HomeScreenState extends State<HomeScreen> {
 
   int _currentIndex = 0;
   MemberProfile _profile = const MemberProfile(userId: '');
+  bool _profileInitialized = false;
   Map<String, dynamic>? _activeEmergency;
   Timer? _activeCheckTimer;
   StreamSubscription? _realtimeSub;
@@ -35,6 +36,19 @@ class _HomeScreenState extends State<HomeScreen> {
   void initState() {
     super.initState();
     _currentIndex = widget.initialIndex;
+
+    // Synchronously initialize profile from cached session metadata to eliminate SOS screen flash
+    final user = _supabase.auth.currentUser;
+    if (user != null) {
+      final meta = user.userMetadata;
+      if (meta != null && meta.isNotEmpty) {
+        _profile = MemberProfile.fromMap(meta, user.id);
+        _profileInitialized = true;
+      } else {
+        _profile = MemberProfile(userId: user.id);
+      }
+    }
+
     _fetchProfile();
     _checkActiveEmergency();
 
@@ -72,6 +86,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (res != null && mounted) {
         setState(() {
           _profile = MemberProfile.fromMap(res, uid);
+          _profileInitialized = true;
         });
       }
     } catch (_) {}
@@ -157,6 +172,43 @@ class _HomeScreenState extends State<HomeScreen> {
         ? const Color(0xFFFF8A65)
         : (isDark ? const Color(0xFF00D4FF) : const Color(0xFF0284C7));
     final unselectedColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+
+    // Guard against cold-boot flash: wait until profile is resolved before choosing tab suite
+    if (!_profileInitialized && _supabase.auth.currentUser != null) {
+      return Scaffold(
+        backgroundColor: bgColor,
+        body: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: 48,
+                height: 48,
+                decoration: BoxDecoration(
+                  color: isDark ? const Color(0xFF1E293B) : const Color(0xFFFFE8DC),
+                  shape: BoxShape.circle,
+                ),
+                child: const Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2.5,
+                    valueColor: AlwaysStoppedAnimation<Color>(Color(0xFFFF8A65)),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Text(
+                'Connecting Solace Shield...',
+                style: TextStyle(
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w600,
+                  color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
 
     // ─────────────────────────────────────────────────────────────────────────
     // A. MATERNAL CARE SUITE (5 Tabs: Today, SOS/Mission, Insights, Records, Shield)
