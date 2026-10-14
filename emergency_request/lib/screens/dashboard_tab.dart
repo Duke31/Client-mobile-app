@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../models/member_profile.dart';
 import '../services/maternal_care_service.dart';
@@ -120,7 +120,7 @@ class _DashboardTabState extends State<DashboardTab> {
                       border: Border.all(color: Colors.redAccent.withValues(alpha: 0.6)),
                     ),
                     child: const Text(
-                      '🩸 Rh-Negative Reserve',
+                      '🩸 Rh-Negative',
                       style: TextStyle(
                         color: Colors.redAccent,
                         fontSize: 10,
@@ -331,7 +331,7 @@ class _DashboardTabState extends State<DashboardTab> {
                   children: [
                     Text('🛡️ ', style: TextStyle(fontSize: 12)),
                     Text(
-                      'Direct-to-Bed Guaranteed Shield',
+                      'Emergency Medical Dispatch',
                       style: TextStyle(
                         color: Color(0xFF0284C7),
                         fontSize: 12,
