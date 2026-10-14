@@ -36,7 +36,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
   final MaternalCareService _maternalService = MaternalCareService();
   final MaternalContentService _contentService = MaternalContentService();
   int _selectedDayIndex = 3; // Index in the 7-day strip (middle = Today)
-  int _unreadAlertCount = 3; // Unread notification badge counter for daily 8:00 AM content drop
+  int _unreadAlertCount = 1; // Rare daily nudge (at most ~1/day)
   String? _lastAcknowledgedCycleKey; // Tracks acknowledged 8:00 AM cycle
   Timer? _cycleRefreshTimer; // Automated timer scheduling 8:00 AM daily refresh
   List<MaternalContentItem> _dailyGuidanceCards = [];
@@ -96,7 +96,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
         _loadingGuidance = false;
         // If a new 8:00 AM cycle has dropped that hasn't been acknowledged, activate notification count
         if (_lastAcknowledgedCycleKey != currentCycleKey) {
-          _unreadAlertCount = cards.isNotEmpty ? cards.length : 3;
+          _unreadAlertCount = cards.isNotEmpty ? 1 : 0;
         }
       });
     }
@@ -1354,11 +1354,25 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
-                          // 1. Daily Clinical Content Library Cards
-                          for (final item in _dailyGuidanceCards) ...[
-                            _buildNotificationTileFromItem(item, ctx, isDark),
-                            const SizedBox(height: 10),
-                          ],
+                          // 1. Rare Daily Nudge (At most ~1/day, short 1-line snippet with deep link to Insights)
+                          Builder(
+                            builder: (context) {
+                              if (_dailyGuidanceCards.isEmpty) return const SizedBox.shrink();
+                              final nudgeItem = _dailyGuidanceCards.firstWhere(
+                                (c) => c.isSafety,
+                                orElse: () => _dailyGuidanceCards.firstWhere(
+                                  (c) => c.isTip,
+                                  orElse: () => _dailyGuidanceCards.first,
+                                ),
+                              );
+                              return Column(
+                                children: [
+                                  _buildNotificationNudgeTile(nudgeItem, ctx, isDark),
+                                  const SizedBox(height: 10),
+                                ],
+                              );
+                            },
+                          ),
 
                           // 2. 24/7 Obstetric Specialist Triage Line
                           _buildNotificationTile(
@@ -1429,6 +1443,39 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           },
         );
       },
+    );
+  }
+
+  Widget _buildNotificationNudgeTile(
+    MaternalContentItem item,
+    BuildContext ctx,
+    bool isDark,
+  ) {
+    final isSafety = item.isSafety;
+    final icon = isSafety ? '🚨' : '💡';
+    final iconBg = isSafety ? const Color(0xFFFFE4E6) : const Color(0xFFCCFBF1);
+    final tagColor = isSafety ? const Color(0xFFE11D48) : const Color(0xFF0D9488);
+
+    // Short 1-line snippet only (Do NOT render full body article)
+    final firstSentence = item.body.split(RegExp(r'(?<=[.!?])\s+')).first;
+    final shortSnippet = firstSentence.length > 95
+        ? '${firstSentence.substring(0, 92)}...'
+        : firstSentence;
+
+    return _buildNotificationTile(
+      icon: icon,
+      iconBg: iconBg,
+      tag: item.slotDisplayLabel,
+      tagColor: tagColor,
+      title: item.title,
+      body: shortSnippet,
+      time: 'Daily Nudge',
+      actionLabel: 'Read in Insights',
+      onAction: () {
+        Navigator.of(ctx).pop();
+        widget.onOpenInsightsTab?.call();
+      },
+      isDark: isDark,
     );
   }
 
