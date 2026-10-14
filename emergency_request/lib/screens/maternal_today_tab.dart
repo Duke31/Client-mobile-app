@@ -49,21 +49,28 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     if (mounted) setState(() {});
   }
 
-  int get _weeks {
-    if (widget.profile.gestationalWeeks != null && widget.profile.gestationalWeeks! > 0) {
-      return widget.profile.gestationalWeeks!;
+  int get _computedElapsedDays {
+    // 1. Clinical calculation from EDD if available: 280 days total from LMP
+    if (widget.profile.edd != null && widget.profile.edd!.trim().isNotEmpty) {
+      final eddParsed = DateTime.tryParse(widget.profile.edd!.trim());
+      if (eddParsed != null) {
+        final now = DateTime.now();
+        final daysUntilDue = eddParsed.difference(DateTime(now.year, now.month, now.day)).inDays;
+        final elapsed = 280 - daysUntilDue;
+        return elapsed.clamp(1, 294);
+      }
     }
-    return 37; // Default obstetric demonstration baseline
+    // 2. If gestationalWeeks is specified directly
+    if (widget.profile.gestationalWeeks != null && widget.profile.gestationalWeeks! > 0) {
+      return (widget.profile.gestationalWeeks! * 7);
+    }
+    // Default baseline (37w)
+    return 37 * 7;
   }
 
-  int get _days {
-    // Gestational day remainder (0-6)
-    return 3;
-  }
-
-  int get _pregnancyDay {
-    return (_weeks * 7) + _days;
-  }
+  int get _weeks => (_computedElapsedDays ~/ 7).clamp(1, 42);
+  int get _days => (_computedElapsedDays % 7);
+  int get _pregnancyDay => _computedElapsedDays;
 
   String get _trimesterLabel {
     if (_weeks < 13) return 'First trimester';
@@ -179,7 +186,11 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
             child: Stack(
               alignment: Alignment.center,
               children: [
-                const Text('🐻', style: TextStyle(fontSize: 20)),
+                Icon(
+                  Icons.person_rounded,
+                  size: 22,
+                  color: isDark ? Colors.white : const Color(0xFFFF8A65),
+                ),
                 Positioned(
                   top: 2,
                   right: 2,
@@ -907,7 +918,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               _buildDetailMetricRow('Clinical Trimester', _trimesterLabel, isDark),
               _buildDetailMetricRow('Baby Size Comparison', _weeks >= 37 ? 'Watermelon (~2.9 kg)' : 'Papaya (~1.8 kg)', isDark),
               _buildDetailMetricRow('Rare Blood Shield', widget.profile.bloodGroup ?? 'O-Negative', isDark),
-              _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalName ?? 'LifeCare Private Clinic', isDark),
+              _buildDetailMetricRow('Preferred Hospital', (widget.profile.preferredHospitalName?.isNotEmpty == true ? widget.profile.preferredHospitalName! : 'Nearest Capable Facility (Auto-Select)'), isDark),
               const SizedBox(height: 20),
               FilledButton(
                 style: FilledButton.styleFrom(
@@ -1066,7 +1077,13 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                       shape: BoxShape.circle,
                       border: Border.all(color: const Color(0xFFFF8A65), width: 2),
                     ),
-                    child: const Center(child: Text('🐻', style: TextStyle(fontSize: 26))),
+                    child: const Center(
+                      child: Icon(
+                        Icons.person_rounded,
+                        size: 28,
+                        color: Color(0xFFFF8A65),
+                      ),
+                    ),
                   ),
                   const SizedBox(width: 14),
                   Expanded(
@@ -1111,7 +1128,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     _buildDetailMetricRow('Gestational Age', '$_weeks Weeks $_days Days', isDark),
                     _buildDetailMetricRow('Blood Shield', widget.profile.bloodGroup ?? 'O- (Rare Blood Shield)', isDark),
                     _buildDetailMetricRow('Genotype', widget.profile.genotype ?? 'AA', isDark),
-                    _buildDetailMetricRow('Preferred Hospital', widget.profile.preferredHospitalName ?? 'LifeCare Private Clinic', isDark),
+                    _buildDetailMetricRow('Preferred Hospital', (widget.profile.preferredHospitalName?.isNotEmpty == true ? widget.profile.preferredHospitalName! : 'Nearest Capable Facility (Auto-Select)'), isDark),
                     _buildDetailMetricRow('Emergency Phone', widget.profile.phone.isNotEmpty ? widget.profile.phone : '+234 800 SOLACE', isDark),
                   ],
                 ),
@@ -1194,33 +1211,56 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     ],
                   ),
                   const SizedBox(height: 12),
-                  // Notification Card 1
+                  // Notification Card 1: Direct-to-Bed Protocol
                   _buildNotificationTile(
                     icon: '🚨',
                     iconBg: Colors.red.shade100,
+                    tag: 'DIRECT-TO-BED DISPATCH',
+                    tagColor: const Color(0xFFEF4444),
                     title: 'Direct-to-Bed Dispatch Pre-Alert Armed',
-                    body: 'Your live GPS coordinates are connected to Ibadan Private Network. Response time: < 8 mins.',
-                    time: 'Just now',
+                    body: 'Your live GPS coordinates are connected to the regional acute emergency cluster. Response time: < 8 mins.',
+                    time: 'Live',
+                    actionLabel: 'View Shield',
+                    onAction: () {
+                      Navigator.of(ctx).pop();
+                      widget.onOpenShieldTab();
+                    },
                     isDark: isDark,
                   ),
                   const SizedBox(height: 10),
-                  // Notification Card 2
+                  // Notification Card 2: Clinical Milestone
                   _buildNotificationTile(
                     icon: '🤰',
                     iconBg: const Color(0xFFFFE8DC),
+                    tag: 'WEEK $_weeks MILESTONE',
+                    tagColor: const Color(0xFFFF8A65),
                     title: 'Week $_weeks Clinical Milestone Alert',
-                    body: 'Third trimester protocol active. Confirm your hospital delivery bag and blood bank reserve.',
-                    time: '2 hours ago',
+                    body: _weeks >= 36
+                        ? 'Third trimester term protocol active. Verify delivery bag & blood reserve.'
+                        : 'Routine fetal development on track. Monitor kick frequency.',
+                    time: 'Today',
+                    actionLabel: 'Open Insights',
+                    onAction: () {
+                      Navigator.of(ctx).pop();
+                      widget.onOpenInsightsTab();
+                    },
                     isDark: isDark,
                   ),
                   const SizedBox(height: 10),
-                  // Notification Card 3
+                  // Notification Card 3: Daily Hydration & Kicks
                   _buildNotificationTile(
                     icon: '💧',
                     iconBg: Colors.blue.shade100,
-                    title: 'Daily Hydration & Kick Counter Reminder',
-                    body: 'Keep baby safe by logging your afternoon kicks and feelings in your Insights tab.',
-                    time: 'Today 9:00 AM',
+                    tag: 'DAILY WELLNESS',
+                    tagColor: const Color(0xFF0284C7),
+                    title: 'Daily Hydration & Kick Check-In',
+                    body: 'Keep baby safe by logging your movement counts and daily feelings.',
+                    time: '9:00 AM',
+                    actionLabel: 'Log Now',
+                    onAction: () {
+                      Navigator.of(ctx).pop();
+                      widget.onOpenInsightsTab();
+                    },
                     isDark: isDark,
                   ),
                 ],
@@ -1235,46 +1275,94 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
   Widget _buildNotificationTile({
     required String icon,
     required Color iconBg,
+    required String tag,
+    required Color tagColor,
     required String title,
     required String body,
     required String time,
+    required String actionLabel,
+    required VoidCallback onAction,
     required bool isDark,
   }) {
     final titleColor = isDark ? Colors.white : const Color(0xFF0F172A);
     final bodyColor = isDark ? Colors.white70 : const Color(0xFF475569);
 
     return Container(
-      padding: const EdgeInsets.all(12),
+      padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(15),
         border: Border.all(color: isDark ? Colors.white12 : const Color(0xFFE2E8F0)),
       ),
-      child: Row(
+      child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
-            child: Text(icon, style: const TextStyle(fontSize: 16)),
+          Row(
+            children: [
+              Container(
+                padding: const EdgeInsets.all(7),
+                decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
+                child: Text(icon, style: const TextStyle(fontSize: 15)),
+              ),
+              const SizedBox(width: 9),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                decoration: BoxDecoration(
+                  color: tagColor.withOpacity(0.12),
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Text(
+                  tag,
+                  style: TextStyle(
+                    fontSize: 9.5,
+                    fontWeight: FontWeight.w900,
+                    color: tagColor,
+                    letterSpacing: 0.3,
+                  ),
+                ),
+              ),
+              const Spacer(),
+              Text(time, style: const TextStyle(fontSize: 10.5, color: Colors.grey)),
+            ],
           ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+          const SizedBox(height: 8),
+          Text(
+            title,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w800,
+              color: titleColor,
+            ),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            body,
+            style: TextStyle(fontSize: 11.5, color: bodyColor, height: 1.35),
+          ),
+          const SizedBox(height: 8),
+          Align(
+            alignment: Alignment.centerRight,
+            child: InkWell(
+              onTap: onAction,
+              borderRadius: BorderRadius.circular(8),
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
                   children: [
-                    Expanded(
-                      child: Text(title, style: TextStyle(fontSize: 12.5, fontWeight: FontWeight.w800, color: titleColor)),
+                    Text(
+                      actionLabel,
+                      style: TextStyle(
+                        fontSize: 11.5,
+                        fontWeight: FontWeight.w800,
+                        color: tagColor,
+                      ),
                     ),
-                    Text(time, style: const TextStyle(fontSize: 10, color: Colors.grey)),
+                    const SizedBox(width: 3),
+                    Icon(Icons.arrow_forward_rounded, size: 13, color: tagColor),
                   ],
                 ),
-                const SizedBox(height: 2),
-                Text(body, style: TextStyle(fontSize: 11, color: bodyColor, height: 1.3)),
-              ],
+              ),
             ),
           ),
         ],
@@ -1393,7 +1481,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               ListTile(
                 leading: const Icon(Icons.local_hospital_rounded, color: Color(0xFFFF8A65)),
                 title: const Text('Hospital Intake Center Hotline', style: TextStyle(fontSize: 13.5, fontWeight: FontWeight.bold)),
-                subtitle: Text(widget.profile.preferredHospitalName ?? 'LifeCare Private Clinic', style: const TextStyle(fontSize: 11)),
+                subtitle: Text((widget.profile.preferredHospitalName?.isNotEmpty == true ? widget.profile.preferredHospitalName! : 'Nearest Capable Facility (Auto-Select)'), style: const TextStyle(fontSize: 11)),
                 onTap: () {
                   Navigator.of(ctx).pop();
                 },
