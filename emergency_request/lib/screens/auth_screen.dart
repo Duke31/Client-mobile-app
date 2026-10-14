@@ -622,7 +622,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                               ],
                                             ),
                                             Text(
-                                              'Gestational tracking, daily wellness insights, labor pre-alert & emergency blood reserve.',
+                                              'Gestational tracking, daily wellness insights, labor pre-alert & clinical care plan.',
                                               style: TextStyle(color: textSecondary, fontSize: 10.5, height: 1.3),
                                             ),
                                           ],
@@ -707,7 +707,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             const SizedBox(height: 14),
                           ],
 
-                          // Blood Group Selection (Emergency Blood Reserve Protocol)
+                          // Blood Group Selection
                           DropdownButtonFormField<String>(
                             value: _selectedBloodGroup,
                             dropdownColor: cardBg,
