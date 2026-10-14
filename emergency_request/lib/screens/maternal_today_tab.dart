@@ -185,11 +185,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 _buildDailyInsightsSection(isDark),
                 const SizedBox(height: 20),
 
-                // ── 5. Care Alerts & Notifications Section (Refreshes Daily at 8:00 AM) ──
-                _buildCareAlertsAndNotificationsSection(isDark),
-                const SizedBox(height: 20),
-
-                // ── 6. Dedicated Obstetric Emergency 1-Tap SOS Shield ────────
+                // ── 5. Dedicated Obstetric Emergency 1-Tap SOS Shield ────────
                 _buildObstetricSosBanner(isDark),
                 const SizedBox(height: 16),
               ],
@@ -1310,7 +1306,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'Care Alerts & Notifications',
+                                'Notifications',
                                 style: TextStyle(
                                   fontSize: 16,
                                   fontWeight: FontWeight.w900,
@@ -1319,8 +1315,8 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                               ),
                               Text(
                                 _unreadAlertCount > 0
-                                    ? '$_unreadAlertCount new daily alerts • $nextRefreshDisplay'
-                                    : 'All alerts acknowledged • $nextRefreshDisplay',
+                                    ? '$_unreadAlertCount new notifications • $nextRefreshDisplay'
+                                    : 'All notifications acknowledged • $nextRefreshDisplay',
                                 style: TextStyle(
                                   fontSize: 11,
                                   fontWeight: FontWeight.w500,
