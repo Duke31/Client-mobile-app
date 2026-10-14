@@ -50,7 +50,7 @@ class RequestScreenState extends State<RequestScreen>
   Map<String, dynamic>? _activeMission;
   Timer? _activeMissionTimer;
   StreamSubscription? _realtimeSub;
-  StreamSubscription<LocationFix>? _gpsStreamSub;
+  StreamSubscription<LocationFix>? _livePositionSub;
 
   // Cached profile data
   String? _profileName;
@@ -67,7 +67,7 @@ class RequestScreenState extends State<RequestScreen>
   bool _profileIsMaternal = false;
 
   Future<void> triggerConditionDispatch(String condition, int priority) async {
-    final fix = _fix ?? const LocationFix(latitude: 6.5244, longitude: 3.3792, accuracyMeters: 15);
+    final fix = _fix ?? const LocationFix(latitude: 7.3775, longitude: 3.9470, accuracyMeters: 15);
     final intake = _IntakeData(
       condition: condition,
       priority: priority,
@@ -96,6 +96,7 @@ class RequestScreenState extends State<RequestScreen>
     );
 
     _loadLocation();
+    _startContinuousLocationFeed();
     _fetchProfileDefaults();
     _checkActiveMission();
 
@@ -113,12 +114,55 @@ class RequestScreenState extends State<RequestScreen>
     } catch (_) {}
   }
 
+  void _startContinuousLocationFeed() {
+    _livePositionSub?.cancel();
+    try {
+      _livePositionSub = _location.liveStream.listen((fix) {
+        if (!mounted) return;
+        final isFirst = _fix == null;
+        final moved = isFirst ||
+            Geolocator.distanceBetween(
+                  _fix!.latitude,
+                  _fix!.longitude,
+                  fix.latitude,
+                  fix.longitude,
+                ) > 12;
+
+        setState(() {
+          _fix = fix;
+          _loadingLocation = false;
+        });
+
+        if (isFirst) {
+          try {
+            _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
+          } catch (_) {}
+        }
+
+        if (moved) {
+          _geocoding.reverseGeocode(
+            latitude: fix.latitude,
+            longitude: fix.longitude,
+          ).then((addr) {
+            if (mounted && addr.isNotEmpty) {
+              setState(() => _address = addr);
+            }
+          });
+        }
+      }, onError: (Object e) {
+        debugPrint('Continuous live GPS telemetry notice: $e');
+      });
+    } catch (e) {
+      debugPrint('Failed to start continuous live GPS telemetry stream: $e');
+    }
+  }
+
   @override
   void dispose() {
     _pulseController.dispose();
     _activeMissionTimer?.cancel();
     _realtimeSub?.cancel();
-    _gpsStreamSub?.cancel();
+    _livePositionSub?.cancel();
     _geocoding.dispose();
     super.dispose();
   }
@@ -247,21 +291,6 @@ class RequestScreenState extends State<RequestScreen>
         await _applyFix(fallback);
       }
     }
-
-    // Start continuous live GPS streaming
-    _gpsStreamSub?.cancel();
-    try {
-      _gpsStreamSub = _location.getPositionStream().listen((liveFix) {
-        if (mounted) {
-          setState(() {
-            _fix = liveFix;
-            _loadingLocation = false;
-          });
-        }
-      }, onError: (e) {
-        debugPrint('Continuous GPS stream notice: $e');
-      });
-    } catch (_) {}
   }
 
   Future<void> _onMapTap(TapPosition _, LatLng point) async {
@@ -1279,13 +1308,24 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
   int _priority = 1;
 
   static const List<Map<String, String>> _ageBandOptions = [
+    {'value': '0-1', 'label': '0-1 yr (Infant)'},
+    {'value': '2-12', 'label': '2-12 yrs (Child)'},
+    {'value': '13-17', 'label': '13-17 yrs (Teen)'},
     {'value': '18-39', 'label': '18-39 yrs (Adult)'},
     {'value': '40-64', 'label': '40-64 yrs (Mature)'},
-    {'value': '13-17', 'label': '13-17 yrs (Teen)'},
-    {'value': '2-12', 'label': '2-12 yrs (Child)'},
-    {'value': '0-1', 'label': '0-1 yr (Infant)'},
     {'value': '65+', 'label': '65+ yrs (Senior)'},
   ];
+
+  List<Map<String, String>> get _effectiveAgeBandOptions {
+    if (widget.isMaternal) {
+      return const [
+        {'value': '18-39', 'label': '18-39 yrs (Adult Mother)'},
+        {'value': '13-17', 'label': '13-17 yrs (Adolescent)'},
+        {'value': '40-64', 'label': '40-64 yrs (Mature)'},
+      ];
+    }
+    return _ageBandOptions;
+  }
 
   static const List<Map<String, dynamic>> _maternalConditions = [
     {
@@ -1298,7 +1338,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     },
     {
       'label': 'Vaginal Bleeding',
-      'title': 'Hemorrhage Alert',
+      'title': 'Severe Bleeding',
       'icon': Icons.bloodtype_rounded,
       'color': Color(0xFFDC2626),
       'priority': 1,
@@ -1306,7 +1346,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     },
     {
       'label': 'Pre-eclampsia / Fits',
-      'title': 'Severe Headache / Aura',
+      'title': 'Pre-eclampsia / Fits',
       'icon': Icons.warning_amber_rounded,
       'color': Color(0xFFEA580C),
       'priority': 1,
@@ -1314,7 +1354,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     },
     {
       'label': 'Fetal Distress',
-      'title': 'Decreased Movement',
+      'title': 'Fetal Distress',
       'icon': Icons.favorite_border_rounded,
       'color': Color(0xFFD97706),
       'priority': 1,
@@ -1322,7 +1362,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     },
     {
       'label': 'Severe Pelvic Pain',
-      'title': 'Rigid Abdomen',
+      'title': 'Severe Pelvic Pain',
       'icon': Icons.healing_rounded,
       'color': Color(0xFFC026D3),
       'priority': 1,
@@ -1330,7 +1370,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     },
     {
       'label': 'Imminent Delivery',
-      'title': 'Crowning / Cord Prolapse',
+      'title': 'Imminent Delivery',
       'icon': Icons.emergency_rounded,
       'color': Color(0xFFB91C1C),
       'priority': 1,
@@ -1338,7 +1378,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
     },
     {
       'label': 'Other Emergency',
-      'title': 'General Medical Event',
+      'title': 'Other Medical Event',
       'icon': Icons.medical_services_rounded,
       'color': Color(0xFF2563EB),
       'priority': 2,
@@ -1404,15 +1444,16 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
   void initState() {
     super.initState();
     _phoneController = TextEditingController(text: widget.defaultPhone ?? '');
-    if (widget.defaultAgeBand != null && widget.defaultAgeBand!.trim().isNotEmpty) {
-      _selectedAgeBand = widget.defaultAgeBand!.trim();
-    }
     if (widget.isMaternal) {
       _selectedCondition = 'Active Labor / PROM';
       _priority = 1;
+      _selectedAgeBand = '18-39';
     } else {
       _selectedCondition = 'Accident';
       _priority = 1;
+      if (widget.defaultAgeBand != null && widget.defaultAgeBand!.trim().isNotEmpty) {
+        _selectedAgeBand = widget.defaultAgeBand!.trim();
+      }
     }
   }
 
@@ -1545,7 +1586,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
             ],
             const SizedBox(height: 14),
 
-            // Verified Address Summary
+            // Continuous Live Satellite Telemetry & Verified Address Summary
             Container(
               padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
               decoration: BoxDecoration(
@@ -1553,23 +1594,61 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFF1E3A8A)),
               ),
-              child: Row(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Icon(Icons.location_on_rounded, color: Color(0xFF00D4FF), size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      widget.currentAddress.isNotEmpty
-                          ? widget.currentAddress
-                          : 'GPS Locked: ${widget.latitude.toStringAsFixed(4)}, ${widget.longitude.toStringAsFixed(4)}',
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w600,
+                  Row(
+                    children: [
+                      Container(
+                        width: 7,
+                        height: 7,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF10B981),
+                          shape: BoxShape.circle,
+                        ),
                       ),
-                    ),
+                      const SizedBox(width: 6),
+                      const Text(
+                        'CONTINUOUS LIVE SATELLITE GPS',
+                        style: TextStyle(
+                          color: Color(0xFF10B981),
+                          fontSize: 9,
+                          fontWeight: FontWeight.w900,
+                          letterSpacing: 0.5,
+                        ),
+                      ),
+                      const Spacer(),
+                      Text(
+                        '${widget.latitude.toStringAsFixed(4)}, ${widget.longitude.toStringAsFixed(4)}',
+                        style: const TextStyle(
+                          color: Colors.white54,
+                          fontSize: 9.5,
+                          fontFamily: 'monospace',
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 6),
+                  Row(
+                    children: [
+                      const Icon(Icons.location_on_rounded, color: Color(0xFF00D4FF), size: 16),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: Text(
+                          widget.currentAddress.isNotEmpty
+                              ? widget.currentAddress
+                              : 'Resolving precise street & landmark telemetry...',
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w600,
+                            height: 1.25,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ],
               ),
@@ -1593,7 +1672,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
               physics: const NeverScrollableScrollPhysics(),
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
                 crossAxisCount: 2,
-                childAspectRatio: 2.3,
+                childAspectRatio: 2.7,
                 crossAxisSpacing: 8,
                 mainAxisSpacing: 8,
               ),
@@ -1640,7 +1719,8 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                             overflow: TextOverflow.ellipsis,
                             style: TextStyle(
                               color: isSel ? Colors.white : Colors.white70,
-                              fontSize: 11,
+                              fontSize: 10.5,
+                              height: 1.15,
                               fontWeight: isSel ? FontWeight.bold : FontWeight.w500,
                             ),
                           ),
@@ -1682,7 +1762,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
             SingleChildScrollView(
               scrollDirection: Axis.horizontal,
               child: Row(
-                children: _ageBandOptions.map((opt) {
+                children: _effectiveAgeBandOptions.map((opt) {
                   final val = opt['value']!;
                   final lbl = opt['label']!;
                   final isSel = _selectedAgeBand == val;
@@ -1803,7 +1883,10 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                     const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'Attached from Medical ID: Blood Group ${widget.bloodGroup!}',
+                        'Attached: Blood Group ${MemberProfile.sanitizeBloodGroup(widget.bloodGroup)}' +
+                            (MemberProfile.sanitizeBloodGroup(widget.bloodGroup).contains('-')
+                                ? ' (Rare Rh-Negative Reserve)'
+                                : ' (Standard Reserve)'),
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         style: const TextStyle(color: Colors.white70, fontSize: 11),
@@ -1830,16 +1913,17 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                 ),
                 onPressed: _confirm,
                 icon: const Icon(Icons.emergency_rounded, size: 22),
-                label: Text(
-                  widget.isMaternal
-                      ? 'CONFIRM OBSTETRIC AMBULANCE DISPATCH'
-                      : 'CONFIRM & DISPATCH AMBULANCE NOW',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    fontSize: 13.5,
-                    fontWeight: FontWeight.w900,
-                    letterSpacing: 0.8,
+                label: FittedBox(
+                  fit: BoxFit.scaleDown,
+                  child: Text(
+                    widget.isMaternal
+                        ? 'CONFIRM OBSTETRIC AMBULANCE DISPATCH'
+                        : 'CONFIRM & DISPATCH AMBULANCE NOW',
+                    style: const TextStyle(
+                      fontSize: 13.5,
+                      fontWeight: FontWeight.w900,
+                      letterSpacing: 0.5,
+                    ),
                   ),
                 ),
               ),
