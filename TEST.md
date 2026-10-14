@@ -164,3 +164,28 @@ Automated testing of all 42 weeks $\times$ 7 weekdays (294 total clinical combin
 - **Profile:** `emergency_request/lib/models/member_profile.dart`
 - **Screen:** `emergency_request/lib/screens/maternal_today_tab.dart`
 - **Verification Doc:** `TEST.md`
+
+---
+
+## 6. Daily Care Alerts & Notifications (8:00 AM Refresh Cycle)
+
+### 6.1 Placement in Care Alerts & Notifications
+The daily 3-card clinical guidance stack is integrated directly into the **Care Alerts & Notifications** section on both primary client-facing surfaces:
+1. **On-Screen Today Dashboard Section (_buildCareAlertsAndNotificationsSection)**:
+   - Header shows clinical tag, live refresh countdown (Refreshes in Xh Ym (8:00 AM)), and current gestational week badge (Week X).
+   - Renders the 3 daily guidance cards: Urgent Safety warning card with high-priority "Trigger Solace SOS" action button, Daily Clinical Tip card, and Secondary Support Card with contextual action buttons (e.g., "Open Medical ID").
+   - Includes the mandatory educational disclaimer at the base of the stack.
+2. **Top Notification Bell Center (_showNotificationsSheet)**:
+   - Tapping the notification bell in the top navigation bar opens the Care Alerts & Notifications modal sheet.
+   - Lists the 3 daily cards as high-priority notification tiles alongside the direct 24/7 Obstetric Specialist Triage Hotline (+2348133355709).
+   - Contains a "Mark all read" button that clears the active notification badge.
+
+### 6.2 Everyday Content Notification Trigger
+- When the 8:00 AM cycle drops each day, a new unique cycle key is generated: cycle__08am.
+- If _lastAcknowledgedCycleKey != currentCycleKey, the unread notification badge indicator (_unreadAlertCount = 3) is activated on the bell icon in the top bar.
+- Opening the notification sheet or clicking "Mark all read" marks the cycle as acknowledged and resets the badge counter to  .
+
+### 6.3 8:00 AM Refresh Engine & Automated Timer
+- Anchor logic: If current time is < 08:00, the active clinical cycle belongs to yesterday's 8:00 AM drop; if >= 08:00, it belongs to today's 8:00 AM drop.
+- Timer: _cycleRefreshTimer automatically calculates the remaining duration until the next 8:00 AM drop (getNextClinicalCycleRefresh()), scheduling an automatic live refresh and notification update when 8:00 AM arrives.
+- Countdown display: getNextRefreshDisplay() updates dynamically (Refreshes in Xh Ym (8:00 AM)).
