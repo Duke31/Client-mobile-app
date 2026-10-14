@@ -420,19 +420,20 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('✨', style: TextStyle(fontSize: 14)),
-                    const SizedBox(width: 6),
+                    const Text('✨', style: TextStyle(fontSize: 13)),
+                    const SizedBox(width: 5),
                     Flexible(
-                      child: Text(
-                        'Daily Wellness',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          fontWeight: FontWeight.w800,
-                        color: _currentMode == _InsightMode.wellnessTracker
-                            ? const Color(0xFFFF8A65)
-                            : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Daily Wellness',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: _currentMode == _InsightMode.wellnessTracker
+                                ? const Color(0xFFFF8A65)
+                                : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+                          ),
                         ),
                       ),
                     ),
@@ -468,19 +469,20 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    const Text('⚠️', style: TextStyle(fontSize: 14)),
-                    const SizedBox(width: 6),
+                    const Text('⚠️', style: TextStyle(fontSize: 13)),
+                    const SizedBox(width: 5),
                     Flexible(
-                      child: Text(
-                        'Danger Signs',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          fontSize: 11,
-                          fontWeight: FontWeight.w800,
-                        color: _currentMode == _InsightMode.clinicalRedFlags
-                            ? const Color(0xFFEF4444)
-                            : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Text(
+                          'Danger Protocols',
+                          style: TextStyle(
+                            fontSize: 11.5,
+                            fontWeight: FontWeight.w800,
+                            color: _currentMode == _InsightMode.clinicalRedFlags
+                                ? const Color(0xFFEF4444)
+                                : (isDark ? Colors.white60 : const Color(0xFF64748B)),
+                          ),
                         ),
                       ),
                     ),
@@ -553,15 +555,18 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
           ),
           const SizedBox(height: 16),
 
-          // 5 Emotion Face Buttons
+          // 5 Emotion Face Buttons: Proportionally fitted inside card bounds
           Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              _buildEmotionButton(1, 'Awful', '😫', const Color(0xFF8B5CF6), isDark),
-              _buildEmotionButton(2, 'Bad', '😔', const Color(0xFF38BDF8), isDark),
-              _buildEmotionButton(3, 'Okay', '😐', const Color(0xFFFACC15), isDark),
-              _buildEmotionButton(4, 'Good', '🙂', const Color(0xFF4ADE80), isDark),
-              _buildEmotionButton(5, 'Great', '😄', const Color(0xFF22C55E), isDark),
+              Expanded(child: _buildEmotionButton(1, 'Awful', '😫', const Color(0xFF8B5CF6), isDark)),
+              const SizedBox(width: 4),
+              Expanded(child: _buildEmotionButton(2, 'Bad', '😔', const Color(0xFF38BDF8), isDark)),
+              const SizedBox(width: 4),
+              Expanded(child: _buildEmotionButton(3, 'Okay', '😐', const Color(0xFFFACC15), isDark)),
+              const SizedBox(width: 4),
+              Expanded(child: _buildEmotionButton(4, 'Good', '🙂', const Color(0xFF4ADE80), isDark)),
+              const SizedBox(width: 4),
+              Expanded(child: _buildEmotionButton(5, 'Great', '😄', const Color(0xFF22C55E), isDark)),
             ],
           ),
         ],
@@ -571,56 +576,52 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
 
   Widget _buildEmotionButton(int score, String label, String emoji, Color color, bool isDark) {
     final isSelected = _todayMoodScore == score;
-    return Expanded(
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        child: InkWell(
-          onTap: () => _saveCheckin(mood: score),
+    return InkWell(
+      onTap: () => _saveCheckin(mood: score),
+      borderRadius: BorderRadius.circular(14),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 200),
+        padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 7),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? color.withOpacity(0.18)
+              : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC)),
           borderRadius: BorderRadius.circular(14),
-          child: AnimatedContainer(
-            duration: const Duration(milliseconds: 200),
-            padding: const EdgeInsets.symmetric(horizontal: 2, vertical: 8),
-            decoration: BoxDecoration(
-              color: isSelected
-                  ? color.withOpacity(0.18)
-                  : (isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC)),
-              borderRadius: BorderRadius.circular(14),
-              border: Border.all(
-                color: isSelected ? color : Colors.transparent,
-                width: isSelected ? 2.0 : 1.0,
+          border: Border.all(
+            color: isSelected ? color : Colors.transparent,
+            width: isSelected ? 2.0 : 1.0,
+          ),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: isSelected ? color : color.withOpacity(0.2),
+                shape: BoxShape.circle,
+              ),
+              child: Center(
+                child: Text(
+                  emoji,
+                  style: const TextStyle(fontSize: 19),
+                ),
               ),
             ),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Container(
-                  width: 36,
-                  height: 36,
-                  decoration: BoxDecoration(
-                    color: isSelected ? color : color.withOpacity(0.2),
-                    shape: BoxShape.circle,
-                  ),
-                  child: Center(
-                    child: Text(
-                      emoji,
-                      style: const TextStyle(fontSize: 18),
-                    ),
-                  ),
+            const SizedBox(height: 5),
+            FittedBox(
+              fit: BoxFit.scaleDown,
+              child: Text(
+                label,
+                style: TextStyle(
+                  fontSize: 10.5,
+                  fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
+                  color: isSelected ? color : (isDark ? Colors.white70 : const Color(0xFF64748B)),
                 ),
-                const SizedBox(height: 5),
-                Text(
-                  label,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: TextStyle(
-                    fontSize: 10,
-                    fontWeight: isSelected ? FontWeight.w900 : FontWeight.w600,
-                    color: isSelected ? color : (isDark ? Colors.white70 : const Color(0xFF64748B)),
-                  ),
-                ),
-              ],
+              ),
             ),
-          ),
+          ],
         ),
       ),
     );
@@ -1444,7 +1445,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                   },
                   icon: const Icon(Icons.flash_on_rounded, size: 16),
                   label: Text(
-                    'Dispatch for ${item.title.split('(').first.trim()} Now',
+                    'Dispatch for ${item.title.split(RegExp(r"\(")).first.trim()} Now',
                     style: const TextStyle(fontWeight: FontWeight.w800, fontSize: 12),
                   ),
                   style: FilledButton.styleFrom(
