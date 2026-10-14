@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../models/member_profile.dart';
 import '../theme/app_theme.dart';
 
@@ -39,52 +40,182 @@ class _DailyMoodRecord {
 }
 
 class _HealthLibraryTabState extends State<HealthLibraryTab> {
+  final SupabaseClient _supabase = Supabase.instance.client;
   _InsightMode _currentMode = _InsightMode.wellnessTracker;
   _ChartViewMode _chartMode = _ChartViewMode.capsuleBars;
 
-  // Selected mood today (1: Awful, 2: Bad, 3: Okay, 4: Good, 5: Great)
-  int _todayMoodScore = 4; // Default to 'Good'
-  int _selectedDayIndex = 2; // Wednesday by default
+  // Selected mood today (1: Awful, 2: Bad, 3: Okay, 4: Good, 5: Great, 0: Unlogged)
+  int _todayMoodScore = 0;
+  int _selectedDayIndex = 0;
 
   // Daily maternal wellness counters
-  int _fetalKicksToday = 12;
-  int _waterGlassesToday = 8;
-  bool _vitaminsTakenToday = true;
+  int _fetalKicksToday = 0;
+  int _waterGlassesToday = 0;
+  bool _vitaminsTakenToday = false;
 
-  // Simulated week data (Mon Oct 12 to Sun Oct 18)
+  // Real saved records map keyed by YYYY-MM-DD
+  final Map<String, Map<String, dynamic>> _savedDailyRecords = {};
+  bool _recordsLoaded = false;
+
   late List<_DailyMoodRecord> _weekData;
+
+  String _dateKey(DateTime dt) {
+    final m = dt.month < 10 ? '0${dt.month}' : '${dt.month}';
+    final d = dt.day < 10 ? '0${dt.day}' : '${dt.day}';
+    return '${dt.year}-$m-$d';
+  }
+
+  List<DateTime> get _currentWeekDates {
+    final now = DateTime.now();
+    final monday = now.subtract(Duration(days: now.weekday - 1));
+    return List.generate(7, (i) => DateTime(monday.year, monday.month, monday.day + i));
+  }
+
+  String get _weekRangeLabel {
+    final dates = _currentWeekDates;
+    const months = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    final start = dates.first;
+    final end = dates.last;
+    return 'This week • ${months[start.month - 1]} ${start.day} - ${months[end.month - 1]} ${end.day}';
+  }
+
+  String get _currentMonthName {
+    final now = DateTime.now();
+    const months = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+    return months[now.month - 1];
+  }
+
+  String get _currentMonthYearAbbr {
+    final now = DateTime.now();
+    const m = ['JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN', 'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC'];
+    return '${m[now.month - 1]} ${now.year}';
+  }
 
   @override
   void initState() {
     super.initState();
+    _selectedDayIndex = DateTime.now().weekday - 1;
     _buildWeekData();
+    _loadSavedRecords();
+  }
+
+  Future<void> _loadSavedRecords() async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return;
+    try {
+      final meta = user.userMetadata;
+      if (meta != null && meta['maternal_checkins'] is Map) {
+        final recs = Map<String, dynamic>.from(meta['maternal_checkins'] as Map);
+        recs.forEach((k, v) {
+          if (v is Map) {
+            _savedDailyRecords[k] = Map<String, dynamic>.from(v);
+          }
+        });
+      }
+
+      final res = await _supabase
+          .from('profiles')
+          .select('maternal_records')
+          .eq('user_id', user.id)
+          .maybeSingle();
+
+      if (res != null && res['maternal_records'] is Map) {
+        final recs = Map<String, dynamic>.from(res['maternal_records'] as Map);
+        recs.forEach((k, v) {
+          if (v is Map) {
+            _savedDailyRecords[k] = Map<String, dynamic>.from(v);
+          }
+        });
+      }
+    } catch (_) {}
+
+    if (mounted) {
+      _applyCurrentDaySelection();
+    }
+  }
+
+  void _applyCurrentDaySelection() {
+    final todayKey = _dateKey(DateTime.now());
+    final todayRec = _savedDailyRecords[todayKey];
+    if (todayRec != null) {
+      _todayMoodScore = (todayRec['mood'] as num?)?.toInt() ?? 0;
+      _fetalKicksToday = (todayRec['kicks'] as num?)?.toInt() ?? 0;
+      _waterGlassesToday = (todayRec['water'] as num?)?.toInt() ?? 0;
+      _vitaminsTakenToday = todayRec['vitamins'] == true;
+    } else {
+      _todayMoodScore = 0;
+      _fetalKicksToday = 0;
+      _waterGlassesToday = 0;
+      _vitaminsTakenToday = false;
+    }
+    _recordsLoaded = true;
+    _buildWeekData();
+    setState(() {});
   }
 
   void _buildWeekData() {
-    _weekData = [
-      const _DailyMoodRecord(dayName: 'MON', dayNumber: 12, moodScore: 5, label: 'Great', emoji: '😄', color: Color(0xFF22C55E)),
-      const _DailyMoodRecord(dayName: 'TUE', dayNumber: 13, moodScore: 2, label: 'Bad', emoji: '😔', color: Color(0xFFF43F5E)),
-      _DailyMoodRecord(
-        dayName: 'WED',
-        dayNumber: 14,
-        moodScore: _todayMoodScore,
-        label: _getMoodLabel(_todayMoodScore),
-        emoji: _getMoodEmoji(_todayMoodScore),
-        color: _getMoodColor(_todayMoodScore),
-      ),
-      const _DailyMoodRecord(dayName: 'THU', dayNumber: 15, moodScore: 0, label: 'Unlogged', emoji: '', color: Colors.transparent),
-      const _DailyMoodRecord(dayName: 'FRI', dayNumber: 16, moodScore: 3, label: 'Okay', emoji: '😐', color: Color(0xFFEAB308)),
-      const _DailyMoodRecord(dayName: 'SAT', dayNumber: 17, moodScore: 4, label: 'Good', emoji: '🙂', color: Color(0xFF10B981)),
-      const _DailyMoodRecord(dayName: 'SUN', dayNumber: 18, moodScore: 0, label: 'Unlogged', emoji: '', color: Colors.transparent),
-    ];
+    final weekDates = _currentWeekDates;
+    const dayNames = ['MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT', 'SUN'];
+
+    _weekData = List.generate(7, (i) {
+      final dt = weekDates[i];
+      final key = _dateKey(dt);
+      final rec = _savedDailyRecords[key];
+      final score = (rec?['mood'] as num?)?.toInt() ?? 0;
+
+      return _DailyMoodRecord(
+        dayName: dayNames[i],
+        dayNumber: dt.day,
+        moodScore: score,
+        label: _getMoodLabel(score),
+        emoji: _getMoodEmoji(score),
+        color: _getMoodColor(score),
+      );
+    });
   }
 
-  void _setTodayMood(int score) {
+  Future<void> _saveCheckin({int? mood, int? kicks, int? water, bool? vitamins}) async {
     HapticFeedback.mediumImpact();
+    final now = DateTime.now();
+    final todayKey = _dateKey(now);
+
+    final existing = _savedDailyRecords[todayKey] ?? {};
+    final updated = {
+      'mood': mood ?? _todayMoodScore,
+      'kicks': kicks ?? _fetalKicksToday,
+      'water': water ?? _waterGlassesToday,
+      'vitamins': vitamins ?? _vitaminsTakenToday,
+      'timestamp': DateTime.now().toIso8601String(),
+    };
+
     setState(() {
-      _todayMoodScore = score;
+      _savedDailyRecords[todayKey] = updated;
+      if (mood != null) _todayMoodScore = mood;
+      if (kicks != null) _fetalKicksToday = kicks;
+      if (water != null) _waterGlassesToday = water;
+      if (vitamins != null) _vitaminsTakenToday = vitamins;
       _buildWeekData();
     });
+
+    final uid = _supabase.auth.currentUser?.id;
+    if (uid == null) return;
+
+    try {
+      await _supabase.auth.updateUser(
+        UserAttributes(
+          data: {
+            'maternal_checkins': _savedDailyRecords,
+            'last_maternal_checkin': todayKey,
+          },
+        ),
+      );
+      await _supabase.from('profiles').update({
+        'maternal_records': _savedDailyRecords,
+      }).eq('user_id', uid);
+    } catch (_) {}
   }
 
   String _getMoodLabel(int score) {
@@ -105,18 +236,18 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
       case 3: return '😐';
       case 4: return '🙂';
       case 5: return '😄';
-      default: return '⚪';
+      default: return '';
     }
   }
 
   Color _getMoodColor(int score) {
     switch (score) {
-      case 1: return const Color(0xFF8B5CF6); // Purple
-      case 2: return const Color(0xFFF43F5E); // Soft coral / pink
-      case 3: return const Color(0xFFEAB308); // Warm yellow
-      case 4: return const Color(0xFF10B981); // Mint green
-      case 5: return const Color(0xFF22C55E); // Bright emerald
-      default: return Colors.grey;
+      case 1: return const Color(0xFF8B5CF6);
+      case 2: return const Color(0xFF38BDF8);
+      case 3: return const Color(0xFFFACC15);
+      case 4: return const Color(0xFF4ADE80);
+      case 5: return const Color(0xFF22C55E);
+      default: return Colors.transparent;
     }
   }
 
@@ -376,7 +507,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
   Widget _buildEmotionButton(int score, String label, String emoji, Color color, bool isDark) {
     final isSelected = _todayMoodScore == score;
     return InkWell(
-      onTap: () => _setTodayMood(score),
+      onTap: () => _saveCheckin(mood: score),
       borderRadius: BorderRadius.circular(16),
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 200),
@@ -457,7 +588,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'This week • OCT 12 - OCT 18',
+                    _weekRangeLabel,
                     style: TextStyle(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w600,
@@ -782,8 +913,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                     icon: const Icon(Icons.remove_circle_outline_rounded, size: 22),
                     onPressed: () {
                       if (_fetalKicksToday > 0) {
-                        HapticFeedback.selectionClick();
-                        setState(() => _fetalKicksToday--);
+                        _saveCheckin(kicks: _fetalKicksToday - 1);
                       }
                     },
                   ),
@@ -794,8 +924,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                   IconButton(
                     icon: const Icon(Icons.add_circle_outline_rounded, size: 22, color: Color(0xFFFF8A65)),
                     onPressed: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _fetalKicksToday++);
+                      _saveCheckin(kicks: _fetalKicksToday + 1);
                     },
                   ),
                 ],
@@ -820,8 +949,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                     icon: const Icon(Icons.remove_circle_outline_rounded, size: 22),
                     onPressed: () {
                       if (_waterGlassesToday > 0) {
-                        HapticFeedback.selectionClick();
-                        setState(() => _waterGlassesToday--);
+                        _saveCheckin(water: _waterGlassesToday - 1);
                       }
                     },
                   ),
@@ -832,8 +960,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                   IconButton(
                     icon: const Icon(Icons.add_circle_outline_rounded, size: 22, color: Color(0xFF00B0FF)),
                     onPressed: () {
-                      HapticFeedback.selectionClick();
-                      setState(() => _waterGlassesToday++);
+                      _saveCheckin(water: _waterGlassesToday + 1);
                     },
                   ),
                 ],
@@ -858,8 +985,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                     value: _vitaminsTakenToday,
                     activeColor: const Color(0xFF22C55E),
                     onChanged: (val) {
-                      HapticFeedback.selectionClick();
-                      setState(() => _vitaminsTakenToday = val);
+                      _saveCheckin(vitamins: val);
                     },
                   ),
                 ],
@@ -887,7 +1013,7 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'October Wellness Calendar',
+                '$_currentMonthName Wellness Calendar',
                 style: TextStyle(
                   fontSize: 15,
                   fontWeight: FontWeight.w800,
@@ -900,11 +1026,11 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
                   color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF1F5F9),
                   borderRadius: BorderRadius.circular(8),
                 ),
-                child: const Row(
+                child: Row(
                   children: [
-                    Text('OCT 2026', style: TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
-                    SizedBox(width: 4),
-                    Icon(Icons.calendar_month_rounded, size: 12),
+                    Text(_currentMonthYearAbbr, style: const TextStyle(fontSize: 10, fontWeight: FontWeight.bold)),
+                    const SizedBox(width: 4),
+                    const Icon(Icons.calendar_month_rounded, size: 12),
                   ],
                 ),
               ),
@@ -933,67 +1059,66 @@ class _HealthLibraryTabState extends State<HealthLibraryTab> {
           ),
           const SizedBox(height: 10),
 
-          // Calendar Grid (31 days)
-          Wrap(
-            spacing: 8,
-            runSpacing: 10,
-            alignment: WrapAlignment.spaceAround,
-            children: List.generate(31, (index) {
-              final day = index + 1;
-              final isToday = day == 14;
-              Color dotColor;
-              if (day % 4 == 0) {
-                dotColor = const Color(0xFF22C55E); // Great
-              } else if (day % 3 == 0) {
-                dotColor = const Color(0xFF4ADE80); // Good
-              } else if (day % 5 == 0) {
-                dotColor = const Color(0xFFFACC15); // Okay
-              } else if (day == 13) {
-                dotColor = const Color(0xFFF43F5E); // Bad
-              } else if (day > 14) {
-                dotColor = Colors.transparent; // Upcoming
-              } else {
-                dotColor = const Color(0xFF22C55E);
-              }
+          // Calendar Grid (Dynamic days of current month, dots strictly from real saved records)
+          Builder(
+            builder: (context) {
+              final now = DateTime.now();
+              final daysInMonth = DateUtils.getDaysInMonth(now.year, now.month);
+              return Wrap(
+                spacing: 8,
+                runSpacing: 10,
+                alignment: WrapAlignment.spaceAround,
+                children: List.generate(daysInMonth, (index) {
+                  final day = index + 1;
+                  final isToday = day == now.day;
+                  final dayKey = _dateKey(DateTime(now.year, now.month, day));
+                  final rec = _savedDailyRecords[dayKey];
+                  Color dotColor = Colors.transparent;
+                  if (rec != null) {
+                    final score = (rec['mood'] as num?)?.toInt() ?? 0;
+                    dotColor = _getMoodColor(score);
+                  }
 
-              return Container(
-                width: 32,
-                height: 38,
-                decoration: BoxDecoration(
-                  color: isToday
-                      ? const Color(0xFFFF8A65).withOpacity(0.2)
-                      : Colors.transparent,
-                  borderRadius: BorderRadius.circular(8),
-                  border: isToday
-                      ? Border.all(color: const Color(0xFFFF8A65), width: 1.5)
-                      : null,
-                ),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      '$day',
-                      style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: isToday ? FontWeight.w900 : FontWeight.w600,
-                        color: isToday
-                            ? const Color(0xFFFF8A65)
-                            : (day > 14 ? (isDark ? Colors.white24 : Colors.black26) : textColor),
-                      ),
+                  return Container(
+                    width: 32,
+                    height: 38,
+                    decoration: BoxDecoration(
+                      color: isToday
+                          ? const Color(0xFFFF8A65).withOpacity(0.2)
+                          : Colors.transparent,
+                      borderRadius: BorderRadius.circular(8),
+                      border: isToday
+                          ? Border.all(color: const Color(0xFFFF8A65), width: 1.5)
+                          : null,
                     ),
-                    const SizedBox(height: 3),
-                    Container(
-                      width: 5,
-                      height: 5,
-                      decoration: BoxDecoration(
-                        color: dotColor,
-                        shape: BoxShape.circle,
-                      ),
+                    child: Column(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          '$day',
+                          style: TextStyle(
+                            fontSize: 11,
+                            fontWeight: isToday ? FontWeight.w900 : FontWeight.w600,
+                            color: isToday
+                                ? const Color(0xFFFF8A65)
+                                : (day > now.day ? (isDark ? Colors.white24 : Colors.black26) : textColor),
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Container(
+                          width: 5,
+                          height: 5,
+                          decoration: BoxDecoration(
+                            color: dotColor,
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                      ],
                     ),
-                  ],
-                ),
+                  );
+                }),
               );
-            }),
+            },
           ),
         ],
       ),
