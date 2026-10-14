@@ -78,7 +78,8 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   Future<void> _fetchProfile() async {
-    final uid = _supabase.auth.currentUser?.id;
+    final user = _supabase.auth.currentUser;
+    final uid = user?.id;
     if (uid == null) return;
     try {
       final res = await _supabase
@@ -87,9 +88,12 @@ class _HomeScreenState extends State<HomeScreen> {
           .eq('user_id', uid)
           .maybeSingle();
 
-      if (res != null && mounted) {
+      final meta = user?.userMetadata ?? {};
+      final merged = <String, dynamic>{...meta, if (res != null) ...res};
+
+      if (mounted) {
         setState(() {
-          _profile = MemberProfile.fromMap(res, uid);
+          _profile = MemberProfile.fromMap(merged, uid);
           _profileInitialized = true;
         });
       }
