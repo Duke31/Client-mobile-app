@@ -808,7 +808,7 @@ class RequestScreenState extends State<RequestScreen>
       greeting = 'Good evening';
     }
 
-    final name = (_profileName ?? widget.initialProfile?.displayName ?? widget.initialProfile?.fullName ?? '').trim();
+    final name = (_profileName ?? widget.initialProfile?.fullName ?? '').trim();
     if (name.isNotEmpty) {
       final firstName = name.split(' ').first;
       return '$greeting, $firstName • 24/7 Active';
