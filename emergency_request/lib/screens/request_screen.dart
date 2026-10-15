@@ -529,7 +529,7 @@ class RequestScreenState extends State<RequestScreen>
 
       final notesList = <String>[];
       if (intake.manualAddress != null && intake.manualAddress!.trim().isNotEmpty) {
-        notesList.add('Landmark: \');
+        notesList.add('Landmark: ${intake.manualAddress!.trim()}');
       }
       if (intake.notes != null && intake.notes!.trim().isNotEmpty) {
         notesList.add('Note: ${intake.notes!.trim()}');
@@ -811,7 +811,7 @@ class RequestScreenState extends State<RequestScreen>
     final firstClean = parts.first.toLowerCase().replaceAll('.', '');
     if (honorifics.contains(firstClean)) {
       if (parts.length > 1) {
-        return '\ \';
+        return '${parts[0]} ${parts[1]}';
       }
       return '';
     }
@@ -836,6 +836,7 @@ class RequestScreenState extends State<RequestScreen>
     }
     return '$greeting  \u2022  24/7 Active';
   }
+  @override
   Widget build(BuildContext context) {
     if (_activeMission == null && _submitting) {
       _submitting = false;
@@ -975,7 +976,7 @@ class RequestScreenState extends State<RequestScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'AMBULANCE EN ROUTE  \u2022  \',
+                                'AMBULANCE EN ROUTE  \u2022  ${_activeMission!['status']?.toString().toUpperCase()}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -985,7 +986,7 @@ class RequestScreenState extends State<RequestScreen>
                                 ),
                               ),
                               Text(
-                                'Unit: \  \u2022  Tap to Track Live',
+                                'Unit: ${_activeMission!['drivers']?['vehicle_label'] ?? 'Assigned Medic'}  \u2022  Tap to Track Live',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
