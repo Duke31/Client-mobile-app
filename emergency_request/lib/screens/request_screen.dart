@@ -127,7 +127,7 @@ class RequestScreenState extends State<RequestScreen>
         final wasCached = _fix == null || _fix!.fromCache;
         final currentAcc = _fix?.accuracyMeters ?? 9999.0;
         final newAcc = fix.accuracyMeters ?? 9999.0;
-        final accuracyImproved = newAcc < currentAcc - 3.0;
+        final accuracyImproved = newAcc < currentAcc - 2.0;
 
         final distance = _fix != null
             ? Geolocator.distanceBetween(
@@ -138,9 +138,9 @@ class RequestScreenState extends State<RequestScreen>
               )
             : 0.0;
 
-        // A live GPS fix ALWAYS overrides a cached estimate or missing fix!
-        // Also update whenever accuracy noticeably improves, or device moves > 5m.
-        final shouldUpdate = wasCached || accuracyImproved || distance > 5.0;
+        // A live satellite GPS fix (< 35m) ALWAYS overrides a poor cell-tower fix (> 50m) or cached fix!
+        final cellTowerOverridden = currentAcc > 50.0 && newAcc <= 35.0;
+        final shouldUpdate = wasCached || cellTowerOverridden || accuracyImproved || (distance > 3.0 && newAcc <= 30.0);
 
         if (shouldUpdate) {
           setState(() {
@@ -312,11 +312,15 @@ class RequestScreenState extends State<RequestScreen>
       _loadingLocation = false;
     });
 
-    WidgetsBinding.instance.addPostFrameCallback((_) {
+    void tryMove() {
       try {
         _mapController.move(LatLng(fix.latitude, fix.longitude), 16.5);
       } catch (_) {}
-    });
+    }
+
+    tryMove();
+    WidgetsBinding.instance.addPostFrameCallback((_) => tryMove());
+    Future.delayed(const Duration(milliseconds: 300), tryMove);
 
     _geocoding.reverseGeocode(
       latitude: fix.latitude,
@@ -793,6 +797,26 @@ class RequestScreenState extends State<RequestScreen>
   }
 
   @override
+  String get _timeGreetingSubtitle {
+    final hour = DateTime.now().hour;
+    String greeting;
+    if (hour < 12) {
+      greeting = 'Good morning';
+    } else if (hour < 17) {
+      greeting = 'Good afternoon';
+    } else {
+      greeting = 'Good evening';
+    }
+
+    final name = (_profileName ?? widget.initialProfile?.displayName ?? widget.initialProfile?.fullName ?? '').trim();
+    if (name.isNotEmpty) {
+      final firstName = name.split(' ').first;
+      return '$greeting, $firstName • 24/7 Active';
+    }
+    return '$greeting • 24/7 Active';
+  }
+
+  @override
   Widget build(BuildContext context) {
     if (_activeMission == null && _submitting) {
       _submitting = false;
@@ -842,13 +866,13 @@ class RequestScreenState extends State<RequestScreen>
               ),
             ),
             Text(
-              '24/7 Emergency Network',
+              _timeGreetingSubtitle,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: textSecondary,
-                fontSize: 9.5,
-                fontWeight: FontWeight.w500,
+                fontSize: 10,
+                fontWeight: FontWeight.w600,
               ),
             ),
           ],
@@ -964,7 +988,7 @@ class RequestScreenState extends State<RequestScreen>
                 child: Stack(
                   children: [
                     MapboxMapView.patientLocation(
-                      key: ValueKey(_fix == null ? 'waiting_gps' : 'ready_gps'),
+                      key: ValueKey('map_${_fix?.latitude?.toStringAsFixed(4)}_${_fix?.longitude?.toStringAsFixed(4)}_${_isManualPin}'),
                       latitude: _fix?.latitude ?? kDefaultCenter.latitude,
                       longitude: _fix?.longitude ?? kDefaultCenter.longitude,
                       zoom: 16.5,
