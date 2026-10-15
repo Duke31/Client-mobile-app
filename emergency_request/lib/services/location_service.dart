@@ -61,7 +61,7 @@ class LocationService {
 
   /// Continuous stream configuration for live telemetry.
   static LocationSettings streamSettings({
-    LocationAccuracy accuracy = LocationAccuracy.high,
+    LocationAccuracy accuracy = LocationAccuracy.bestForNavigation,
     int intervalMs = 1000,
     int distanceFilter = 0,
   }) {
@@ -70,7 +70,7 @@ class LocationService {
         accuracy: accuracy,
         intervalDuration: Duration(milliseconds: intervalMs),
         distanceFilter: distanceFilter,
-        forceLocationManager: false,
+        forceLocationManager: true, // Direct native GPS satellite provider (bypasses cell-tower offset)
       );
     }
     if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -128,17 +128,40 @@ class LocationService {
       );
     }
 
-    // Tier 1: Fast direct high-accuracy query (Fused Location / GPS)
+    // Tier 1: Android direct hardware GPS satellite provider (bypasses cell-tower / wifi offset)
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: AndroidSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            timeLimit: const Duration(seconds: 4),
+            forceLocationManager: true, // Native Android LocationManager GPS
+          ),
+        );
+        if (pos.accuracy <= 30.0) {
+          return LocationFix(
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            accuracyMeters: pos.accuracy,
+            fromCache: false,
+          );
+        }
+      } catch (e) {
+        debugPrint('current(): Direct hardware GPS attempt notice: $e');
+      }
+    }
+
+    // Tier 2: Fused high-accuracy location
     try {
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: defaultTargetPlatform == TargetPlatform.android
             ? AndroidSettings(
-                accuracy: LocationAccuracy.high,
+                accuracy: LocationAccuracy.bestForNavigation,
                 timeLimit: const Duration(seconds: 4),
                 forceLocationManager: false,
               )
             : const LocationSettings(
-                accuracy: LocationAccuracy.high,
+                accuracy: LocationAccuracy.bestForNavigation,
                 timeLimit: Duration(seconds: 4),
               ),
       );
@@ -150,27 +173,6 @@ class LocationService {
       );
     } catch (e) {
       debugPrint('current(): Fused location attempt notice: $e');
-    }
-
-    // Tier 2: Android direct hardware GPS provider (bypasses Google Play Services if throttled)
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          locationSettings: AndroidSettings(
-            accuracy: LocationAccuracy.high,
-            timeLimit: const Duration(seconds: 4),
-            forceLocationManager: true, // Native Android LocationManager GPS
-          ),
-        );
-        return LocationFix(
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          accuracyMeters: pos.accuracy,
-          fromCache: false,
-        );
-      } catch (e) {
-        debugPrint('current(): Direct hardware GPS attempt notice: $e');
-      }
     }
 
     // Tier 3: Medium accuracy query
@@ -206,14 +208,37 @@ class LocationService {
   /// Forces a fresh satellite hardware GPS reading, bypassing any cached coordinates.
   /// Used by the SOS map recenter button to recalibrate immediately (< 3-4s).
   Future<LocationFix> forceFreshGps({
-    Duration timeout = const Duration(seconds: 5),
+    Duration timeout = const Duration(seconds: 6),
   }) async {
     final hasPerm = await ensurePermission();
     if (!hasPerm) {
       throw const LocationException('Location permission not granted');
     }
 
-    // Attempt 1: High accuracy fused query
+    // Attempt 1: Direct native Android hardware GPS satellite chip (bypasses stale Google cell-tower cache)
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      try {
+        final pos = await Geolocator.getCurrentPosition(
+          locationSettings: AndroidSettings(
+            accuracy: LocationAccuracy.bestForNavigation,
+            timeLimit: timeout,
+            forceLocationManager: true, // Native Android LocationManager GPS satellites!
+          ),
+        );
+        if (pos.accuracy <= 35.0) {
+          return LocationFix(
+            latitude: pos.latitude,
+            longitude: pos.longitude,
+            accuracyMeters: pos.accuracy,
+            fromCache: false,
+          );
+        }
+      } catch (e) {
+        debugPrint('forceFreshGps: Direct hardware GPS attempt notice: $e');
+      }
+    }
+
+    // Attempt 2: High accuracy fused query
     try {
       final pos = await Geolocator.getCurrentPosition(
         locationSettings: defaultTargetPlatform == TargetPlatform.android
@@ -234,25 +259,6 @@ class LocationService {
         fromCache: false,
       );
     } catch (_) {}
-
-    // Attempt 2: Direct Android hardware GPS chip
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      try {
-        final pos = await Geolocator.getCurrentPosition(
-          locationSettings: AndroidSettings(
-            accuracy: LocationAccuracy.bestForNavigation,
-            timeLimit: const Duration(seconds: 4),
-            forceLocationManager: true,
-          ),
-        );
-        return LocationFix(
-          latitude: pos.latitude,
-          longitude: pos.longitude,
-          accuracyMeters: pos.accuracy,
-          fromCache: false,
-        );
-      } catch (_) {}
-    }
 
     return await current();
   }
