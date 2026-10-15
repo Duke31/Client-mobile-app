@@ -149,7 +149,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     final firstClean = parts.first.toLowerCase().replaceAll('.', '');
     if (honorifics.contains(firstClean)) {
       if (parts.length > 1) {
-        return '\ \';
+        return '${parts[0]} ${parts[1]}';
       }
       return '';
     }
@@ -294,11 +294,11 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 _buildAmnioticCenterpiece(isDark),
                 const SizedBox(height: 24),
 
-              'My daily insights  \u2022  Today',
+                // -- 4. My Daily Insights - Today -----------------------------
                 _buildDailyInsightsSection(isDark),
                 const SizedBox(height: 20),
 
-                    'Refreshes daily at 8:00 AM  \u2022  \',
+                // -- 5. Care Alerts & Notifications Section (Refreshes Daily at 8:00 AM) --
                 _buildCareAlertsAndNotificationsSection(isDark),
                 const SizedBox(height: 20),
 
@@ -1102,7 +1102,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  const Text('?? ', style: TextStyle(fontSize: 22)),
+                  const Icon(Icons.child_care_rounded, size: 24, color: Color(0xFFEC4899)),
                   Text(
                     'Gestational Journey: $_weeks Weeks',
                     style: TextStyle(
@@ -1204,7 +1204,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               const SizedBox(height: 16),
               const Row(
                 children: [
-                  Text('?? ', style: TextStyle(fontSize: 22)),
+                  const Icon(Icons.warning_amber_rounded, size: 24, color: Color(0xFFE11D48)),
                   Text(
                     'Maternal Red Flags & Watch-outs',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
@@ -1260,7 +1260,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-                      'Daily Care & Wellness  \u2022  \',
+  // -- Modal Sheet: Gentle Daily Care & Wellness (Early/Mid Trimesters) -------
   void _showDailyCareSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1293,10 +1293,10 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  const Text('?? ', style: TextStyle(fontSize: 22)),
+                  const Icon(Icons.spa_rounded, size: 24, color: Color(0xFF0284C7)),
                   Expanded(
                     child: Text(
-                      'Daily Care & Wellness  \u2022  \',
+                      'Daily Care & Wellness  \u2022  ${_trimesterLabel}',
                       style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
@@ -1661,7 +1661,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                                 child: _buildNotificationTile(
                                   iconData: Icons.spa_rounded,
                                   iconBg: const Color(0xFFEFF6FF),
-                      'Daily Care & Wellness  \u2022  \',
+                                  tag: 'DAILY CARE & WELLNESS',
                                   tagColor: const Color(0xFF0284C7),
                                   title: 'Daily Care Guidance',
                                   body: 'Rest well, drink plenty of water, and keep up with your daily prenatal vitamins today.',
@@ -2001,7 +2001,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 child: Column(
                   children: [
                     _buildDetailMetricRow('Active Month', 'October 2026', isDark),
-                    _buildDetailMetricRow('Current Progress', 'Week \  \u2022  \', isDark),
+                    _buildDetailMetricRow('Current Progress', 'Week ${_weeks}  \u2022  ${_trimesterLabel}', isDark),
                     _buildDetailMetricRow('Estimated Delivery Date', widget.profile.edd ?? 'Dec 15, 2026', isDark),
                     _buildDetailMetricRow('Days Remaining', '18 Days to full term (Day 280)', isDark),
                   ],
@@ -2121,7 +2121,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     ),
                   ),
                   Text(
-                    'Refreshes daily at 8:00 AM  \u2022  \',
+                    'Refreshes daily at 8:00 AM  \u2022  ${MaternalContentService.getNextRefreshDisplay()}',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
