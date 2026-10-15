@@ -134,28 +134,48 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
   String get _trimesterLabel => widget.profile.trimesterLabel;
   bool get _isLateTrimester => _weeks >= 28;
 
+  String _formatClientGreetingName(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    final parts = trimmed.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '';
+
+    const honorifics = {
+      'mrs', 'mr', 'ms', 'miss', 'dr', 'prof', 'professor', 'chief', 'pastor',
+      'rev', 'reverend', 'elder', 'deacon', 'deaconess', 'madam', 'lady', 'sir',
+      'barrister', 'barr', 'engr', 'engineer', 'alhaj', 'alhaji', 'alhaja'
+    };
+
+    final firstClean = parts.first.toLowerCase().replaceAll('.', '');
+    if (honorifics.contains(firstClean)) {
+      if (parts.length > 1) {
+        return '\ \';
+      }
+      return '';
+    }
+    return parts.first;
+  }
+
   Widget _buildGreetingGesture(bool isDark) {
     final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
     final subColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
     final hour = DateTime.now().hour;
     String greeting;
-    String icon;
+    IconData timeIcon;
     if (hour < 12) {
       greeting = 'Good morning';
-      icon = '☀️';
+      timeIcon = Icons.wb_sunny_rounded;
     } else if (hour < 17) {
       greeting = 'Good afternoon';
-      icon = '🌤️';
+      timeIcon = Icons.wb_twilight_rounded;
     } else {
       greeting = 'Good evening';
-      icon = '🌙';
+      timeIcon = Icons.nightlight_round;
     }
 
     final rawName = widget.profile.fullName;
-    final firstName = rawName.trim().isNotEmpty
-        ? rawName.trim().split(' ').first
-        : '';
-    final title = firstName.isNotEmpty ? '$greeting, $firstName $icon' : '$greeting $icon';
+    final displayName = _formatClientGreetingName(rawName);
+    final title = displayName.isNotEmpty ? '$greeting, $displayName' : greeting;
 
     return Container(
       margin: const EdgeInsets.only(bottom: 14),
@@ -175,7 +195,11 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               color: const Color(0xFFFF8A65).withValues(alpha: 0.15),
               shape: BoxShape.circle,
             ),
-            child: const Text('🌸', style: TextStyle(fontSize: 16)),
+            child: Icon(
+              timeIcon,
+              color: const Color(0xFFFF8A65),
+              size: 18,
+            ),
           ),
           const SizedBox(width: 10),
           Expanded(
@@ -206,7 +230,6 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
       ),
     );
   }
-
   String get _monthName {
     final now = DateTime.now();
     const months = [
@@ -250,36 +273,36 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // ── 1. Top Header Bar ────────────────────────────────────────
+                // -- 1. Top Header Bar ----------------------------------------
                 _buildTopAppBar(isDark),
                 const SizedBox(height: 12),
 
-                // ── Welcome & Time-of-Day Greeting Gesture ───────────────────
+                // -- Welcome & Time-of-Day Greeting Gesture -------------------
                 _buildGreetingGesture(isDark),
 
-                // ── 2. Horizontal Weekly Calendar Strip with 'TODAY' Marker ──
+                // -- 2. Horizontal Weekly Calendar Strip with 'TODAY' Marker --
                 _buildWeeklyCalendarStrip(isDark),
                 const SizedBox(height: 18),
 
-                // ── Active Emergency Mission Banner (If Ambulance is En Route) ─
+                // -- Active Emergency Mission Banner (If Ambulance is En Route) -
                 if (hasActive) ...[
                   _buildActiveMissionBanner(isDark),
                   const SizedBox(height: 18),
                 ],
 
-                // ── 3. Centerpiece: Soft Glowing Amniotic Sphere ─────────────
+                // -- 3. Centerpiece: Soft Glowing Amniotic Sphere -------------
                 _buildAmnioticCenterpiece(isDark),
                 const SizedBox(height: 24),
 
-                // ── 4. My Daily Insights • Today ─────────────────────────────
+              'My daily insights  \u2022  Today',
                 _buildDailyInsightsSection(isDark),
                 const SizedBox(height: 20),
 
-                // ── 5. Care Alerts & Notifications Section (Refreshes Daily at 8:00 AM) ──
+                    'Refreshes daily at 8:00 AM  \u2022  \',
                 _buildCareAlertsAndNotificationsSection(isDark),
                 const SizedBox(height: 20),
 
-                // ── 6. Dedicated Obstetric Emergency 1-Tap SOS Shield ────────
+                // -- 6. Dedicated Obstetric Emergency 1-Tap SOS Shield --------
                 _buildObstetricSosBanner(isDark),
                 const SizedBox(height: 16),
               ],
@@ -290,7 +313,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Top Header Bar (Interactive Roles: Profile, Month, Alerts, Support) ───
+  // -- Top Header Bar (Interactive Roles: Profile, Month, Alerts, Support) ---
   Widget _buildTopAppBar(bool isDark) {
     final textColor = isDark ? Colors.white : const Color(0xFF1E293B);
 
@@ -433,7 +456,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Weekly Calendar Strip with Pointer to Amniotic Sphere ─────────────────
+  // -- Weekly Calendar Strip with Pointer to Amniotic Sphere -----------------
   Widget _buildWeeklyCalendarStrip(bool isDark) {
     const days = ['M', 'T', 'W', 'T', 'F', 'S', 'S'];
     final weekDates = _getCurrentWeekDates();
@@ -532,7 +555,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Active Mission Banner ──────────────────────────────────────────────────
+  // -- Active Mission Banner --------------------------------------------------
   Widget _buildActiveMissionBanner(bool isDark) {
     return GestureDetector(
       onTap: widget.onOpenMissionTracker,
@@ -560,7 +583,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    '🚨 AMBULANCE EN ROUTE • LIVE TRACKING',
+                    'AMBULANCE EN ROUTE  \u2022  LIVE TRACKING',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 12.5,
@@ -569,7 +592,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     ),
                   ),
                   Text(
-                    'Emergency dispatch active • Tap to view ETA & Driver Radar',
+                    'Emergency dispatch active  \u2022  Tap to view ETA & Driver Radar',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.9),
                       fontSize: 11,
@@ -585,7 +608,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Centerpiece: Glowing Amniotic Sphere with 3D Baby Render ──────────────
+  // -- Centerpiece: Glowing Amniotic Sphere with 3D Baby Render --------------
   Widget _buildAmnioticCenterpiece(bool isDark) {
     final sphereSize = MediaQuery.of(context).size.width * 0.76;
     const fetusAsset = 'assets/images/fetus_37_weeks.jpg';
@@ -748,7 +771,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Daily Insights Row (3 Vibrant Cards Matching Reference Screenshot) ────
+  // -- Daily Insights Row (3 Vibrant Cards Matching Reference Screenshot) ----
   Widget _buildDailyInsightsSection(bool isDark) {
     final titleColor = isDark ? Colors.white : const Color(0xFF0F172A);
 
@@ -759,7 +782,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'My daily insights • Today',
+              'My daily insights  \u2022  Today',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
@@ -969,7 +992,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Dedicated Obstetric 1-Tap SOS Emergency Shield ─────────────────────────
+  // -- Dedicated Obstetric 1-Tap SOS Emergency Shield -------------------------
   Widget _buildObstetricSosBanner(bool isDark) {
     return Container(
       decoration: BoxDecoration(
@@ -1015,7 +1038,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       const Text(
-                        '🌸 1-TAP OBSTETRIC EMERGENCY DISPATCH',
+                        '1-TAP OBSTETRIC EMERGENCY DISPATCH',
                         style: TextStyle(
                           color: Colors.white,
                           fontSize: 12.5,
@@ -1048,7 +1071,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Modal Sheet: Gestational Details ───────────────────────────────────────
+  // -- Modal Sheet: Gestational Details ---------------------------------------
   void _showGestationalDetailsSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1079,7 +1102,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  const Text('🌸 ', style: TextStyle(fontSize: 22)),
+                  const Text('?? ', style: TextStyle(fontSize: 22)),
                   Text(
                     'Gestational Journey: $_weeks Weeks',
                     style: TextStyle(
@@ -1149,7 +1172,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Modal Sheet: Maternal Red Flag Watch-outs (Late Trimester Only) ────────
+  // -- Modal Sheet: Maternal Red Flag Watch-outs (Late Trimester Only) --------
   void _showMaternalWatchoutsSheet() {
     if (!_isLateTrimester) return;
     showModalBottomSheet<void>(
@@ -1181,7 +1204,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               const SizedBox(height: 16),
               const Row(
                 children: [
-                  Text('⚠️ ', style: TextStyle(fontSize: 22)),
+                  Text('?? ', style: TextStyle(fontSize: 22)),
                   Text(
                     'Maternal Red Flags & Watch-outs',
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.w900),
@@ -1237,7 +1260,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Modal Sheet: Gentle Daily Care & Wellness (Early/Mid Trimesters) ───────
+                      'Daily Care & Wellness  \u2022  \',
   void _showDailyCareSheet() {
     showModalBottomSheet<void>(
       context: context,
@@ -1270,10 +1293,10 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               const SizedBox(height: 16),
               Row(
                 children: [
-                  const Text('🌱 ', style: TextStyle(fontSize: 22)),
+                  const Text('?? ', style: TextStyle(fontSize: 22)),
                   Expanded(
                     child: Text(
-                      'Daily Care & Wellness • $_trimesterLabel',
+                      'Daily Care & Wellness  \u2022  \',
                       style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
@@ -1326,7 +1349,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Understood • Feeling Good', style: TextStyle(fontWeight: FontWeight.w800)),
+                child: const Text('Understood  \u2022  Feeling Good', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
             ],
           ),
@@ -1385,7 +1408,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── 1. Bear Avatar: Member Quick Medical Shield Sheet ──────────────────────
+  // -- 1. Bear Avatar: Member Quick Medical Shield Sheet ----------------------
   void _showQuickProfileSheet(BuildContext context, bool isDark) {
     HapticFeedback.mediumImpact();
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
@@ -1450,7 +1473,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: const Text(
-                            '🌸 Maternal Care Plan • Active',
+                            'Maternal Care Plan  \u2022  Active',
                             style: TextStyle(
                               color: Color(0xFFEC4899),
                               fontSize: 10,
@@ -1503,7 +1526,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── 2. Notification Bell: Maternal Care Notifications Center ─────────────
+  // -- 2. Notification Bell: Maternal Care Notifications Center -------------
   void _showNotificationsSheet(BuildContext context, bool isDark) {
     HapticFeedback.mediumImpact();
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
@@ -1552,59 +1575,69 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
-                      Row(
-                        children: [
-                          Container(
-                            padding: const EdgeInsets.all(7),
-                            decoration: BoxDecoration(
-                              color: const Color(0xFFFF8A65).withValues(alpha: 0.15),
-                              shape: BoxShape.circle,
-                            ),
-                            child: const Icon(
-                              Icons.notifications_active_rounded,
-                              color: Color(0xFFFF8A65),
-                              size: 20,
-                            ),
-                          ),
-                          const SizedBox(width: 10),
-                          Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            children: [
-                              Text(
-                                'Care Notifications',
-                                style: TextStyle(
-                                  fontSize: 16,
-                                  fontWeight: FontWeight.w900,
-                                  color: textColor,
-                                ),
+                      Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              padding: const EdgeInsets.all(7),
+                              decoration: BoxDecoration(
+                                color: const Color(0xFFFF8A65).withValues(alpha: 0.15),
+                                shape: BoxShape.circle,
                               ),
-                              Text(
-                                _unreadAlertCount > 0
-                                    ? '$_unreadAlertCount new updates • $nextRefreshDisplay'
-                                    : 'All notifications caught up • $nextRefreshDisplay',
-                                style: TextStyle(
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w500,
-                                  color: isDark ? Colors.white60 : const Color(0xFF64748B),
-                                ),
+                              child: const Icon(
+                                Icons.notifications_active_rounded,
+                                color: Color(0xFFFF8A65),
+                                size: 20,
                               ),
-                            ],
-                          ),
-                        ],
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  Text(
+                                    'Care Notifications',
+                                    style: TextStyle(
+                                      fontSize: 16,
+                                      fontWeight: FontWeight.w900,
+                                      color: textColor,
+                                    ),
+                                  ),
+                                  Text(
+                                    _unreadAlertCount > 0
+                                        ? '$_unreadAlertCount new updates \u2022 $nextRefreshDisplay'
+                                        : 'All notifications caught up \u2022 $nextRefreshDisplay',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(
+                                      fontSize: 11,
+                                      fontWeight: FontWeight.w500,
+                                      color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                          ],
+                        ),
                       ),
                       if (_unreadAlertCount > 0)
-                        TextButton(
-                          onPressed: () {
-                            HapticFeedback.selectionClick();
-                            _markAlertsAsAcknowledged();
-                            setModalState(() {});
-                          },
-                          child: const Text(
-                            'Mark all read',
-                            style: TextStyle(
-                              fontSize: 11.5,
-                              fontWeight: FontWeight.bold,
-                              color: Color(0xFF0284C7),
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: TextButton(
+                            onPressed: () {
+                              HapticFeedback.selectionClick();
+                              _markAlertsAsAcknowledged();
+                              setModalState(() {});
+                            },
+                            child: const Text(
+                              'Mark all read',
+                              style: TextStyle(
+                                fontSize: 11.5,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF0284C7),
+                              ),
                             ),
                           ),
                         ),
@@ -1626,9 +1659,9 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                               return Padding(
                                 padding: const EdgeInsets.only(bottom: 10),
                                 child: _buildNotificationTile(
-                                  icon: '🌱',
+                                  iconData: Icons.spa_rounded,
                                   iconBg: const Color(0xFFEFF6FF),
-                                  tag: 'DAILY CARE & WELLNESS',
+                      'Daily Care & Wellness  \u2022  \',
                                   tagColor: const Color(0xFF0284C7),
                                   title: 'Daily Care Guidance',
                                   body: 'Rest well, drink plenty of water, and keep up with your daily prenatal vitamins today.',
@@ -1651,7 +1684,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
 
                           // 2. 24/7 Obstetric Specialist Triage Line
                           _buildNotificationTile(
-                            icon: '📞',
+                            iconData: Icons.phone_in_talk_rounded,
                             iconBg: const Color(0xFFDCFCE7),
                             tag: '24/7 OBSTETRIC HOTLINE',
                             tagColor: const Color(0xFF16A34A),
@@ -1726,43 +1759,43 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     BuildContext ctx,
     bool isDark,
   ) {
-    String icon;
+    IconData iconData;
     Color iconBg;
     Color tagColor;
 
     if (item.isSafety) {
-      icon = '🚨';
+      iconData = Icons.warning_amber_rounded;
       iconBg = const Color(0xFFFFE4E6);
       tagColor = const Color(0xFFE11D48);
     } else if (item.isTip) {
-      icon = '💡';
+      iconData = Icons.lightbulb_outline_rounded;
       iconBg = const Color(0xFFCCFBF1);
       tagColor = const Color(0xFF0D9488);
     } else {
       switch (item.slot) {
         case 'nutrition':
-          icon = '🥗';
+          iconData = Icons.restaurant_rounded;
           iconBg = const Color(0xFFD1FAE5);
           tagColor = const Color(0xFF059669);
           break;
         case 'comfort':
-          icon = '🌿';
+          iconData = Icons.spa_rounded;
           iconBg = const Color(0xFFE0F2FE);
           tagColor = const Color(0xFF0284C7);
           break;
         case 'prepare':
-          icon = '📋';
+          iconData = Icons.fact_check_outlined;
           iconBg = const Color(0xFFEDE9FE);
           tagColor = const Color(0xFF7C3AED);
           break;
         case 'mind':
-          icon = '🧘';
+          iconData = Icons.favorite_border_rounded;
           iconBg = const Color(0xFFFCE7F3);
           tagColor = const Color(0xFFDB2777);
           break;
         case 'review':
         default:
-          icon = '📑';
+          iconData = Icons.checklist_rounded;
           iconBg = const Color(0xFFFEF3C7);
           tagColor = const Color(0xFFD97706);
           break;
@@ -1790,7 +1823,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     }
 
     return _buildNotificationTile(
-      icon: icon,
+      iconData: iconData,
       iconBg: iconBg,
       tag: item.slotDisplayLabel,
       tagColor: tagColor,
@@ -1802,8 +1835,9 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
       isDark: isDark,
     );
   }
+
   Widget _buildNotificationTile({
-    required String icon,
+    required IconData iconData,
     required Color iconBg,
     required String tag,
     required Color tagColor,
@@ -1818,6 +1852,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     final bodyColor = isDark ? Colors.white70 : const Color(0xFF475569);
 
     return Container(
+      clipBehavior: Clip.antiAlias,
       padding: const EdgeInsets.all(13),
       decoration: BoxDecoration(
         color: isDark ? const Color(0xFF1E293B) : const Color(0xFFF8FAFC),
@@ -1832,33 +1867,38 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
         ],
       ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        mainAxisSize: MainAxisSize.min,
         children: [
           Row(
             children: [
               Container(
-                padding: const EdgeInsets.all(7),
+                padding: const EdgeInsets.all(6),
                 decoration: BoxDecoration(color: iconBg, shape: BoxShape.circle),
-                child: Text(icon, style: const TextStyle(fontSize: 15)),
+                child: Icon(iconData, size: 15, color: tagColor),
               ),
-              const SizedBox(width: 9),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-                decoration: BoxDecoration(
-                  color: tagColor.withOpacity(0.12),
-                  borderRadius: BorderRadius.circular(6),
-                ),
-                child: Text(
-                  tag,
-                  style: TextStyle(
-                    fontSize: 9.5,
-                    fontWeight: FontWeight.w900,
-                    color: tagColor,
-                    letterSpacing: 0.3,
+              const SizedBox(width: 8),
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
+                  decoration: BoxDecoration(
+                    color: tagColor.withOpacity(0.12),
+                    borderRadius: BorderRadius.circular(6),
+                  ),
+                  child: Text(
+                    tag,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 9.5,
+                      fontWeight: FontWeight.w900,
+                      color: tagColor,
+                      letterSpacing: 0.3,
+                    ),
                   ),
                 ),
               ),
-              const Spacer(),
+              const SizedBox(width: 8),
               Text(
                 time,
                 style: const TextStyle(fontSize: 10.5, color: Colors.grey, fontWeight: FontWeight.w600),
@@ -1870,6 +1910,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
             title,
             maxLines: 2,
             overflow: TextOverflow.ellipsis,
+            softWrap: true,
             style: TextStyle(
               fontSize: 13,
               fontWeight: FontWeight.w800,
@@ -1879,6 +1920,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           const SizedBox(height: 4),
           Text(
             body,
+            softWrap: true,
             style: TextStyle(fontSize: 11.5, color: bodyColor, height: 1.35),
           ),
           const SizedBox(height: 8),
@@ -1892,12 +1934,16 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    Text(
-                      actionLabel,
-                      style: TextStyle(
-                        fontSize: 11.5,
-                        fontWeight: FontWeight.w800,
-                        color: tagColor,
+                    Flexible(
+                      child: Text(
+                        actionLabel,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 11.5,
+                          fontWeight: FontWeight.w800,
+                          color: tagColor,
+                        ),
                       ),
                     ),
                     const SizedBox(width: 3),
@@ -1911,8 +1957,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
       ),
     );
   }
-
-  // ── 3. Month Title: Month Calendar Picker Sheet ───────────────────────────
+  // -- 3. Month Title: Month Calendar Picker Sheet ---------------------------
   void _showMonthPickerSheet(BuildContext context, bool isDark) {
     HapticFeedback.selectionClick();
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
@@ -1956,7 +2001,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 child: Column(
                   children: [
                     _buildDetailMetricRow('Active Month', 'October 2026', isDark),
-                    _buildDetailMetricRow('Current Progress', 'Week $_weeks • $_trimesterLabel', isDark),
+                    _buildDetailMetricRow('Current Progress', 'Week \  \u2022  \', isDark),
                     _buildDetailMetricRow('Estimated Delivery Date', widget.profile.edd ?? 'Dec 15, 2026', isDark),
                     _buildDetailMetricRow('Days Remaining', '18 Days to full term (Day 280)', isDark),
                   ],
@@ -1969,7 +2014,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── 4. Options Menu: Quick Support & Emergency Handover ────────────────────
+  // -- 4. Options Menu: Quick Support & Emergency Handover --------------------
   void _showSupportOptionsSheet(BuildContext context, bool isDark) {
     HapticFeedback.mediumImpact();
     final cardBg = isDark ? AppTheme.darkCard : Colors.white;
@@ -2038,7 +2083,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Maternal Pre-written Daily Clinical Library Stack (Strict Rules 1-4) ───
+  // -- Maternal Pre-written Daily Clinical Library Stack (Strict Rules 1-4) ---
   Widget _buildCareAlertsAndNotificationsSection(bool isDark) {
     final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
     final subColor = isDark ? Colors.white60 : const Color(0xFF64748B);
@@ -2076,7 +2121,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     ),
                   ),
                   Text(
-                    'Refreshes daily at 8:00 AM • ${MaternalContentService.getNextRefreshDisplay()}',
+                    'Refreshes daily at 8:00 AM  \u2022  \',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
