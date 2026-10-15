@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../theme/app_theme.dart';
@@ -355,7 +355,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Emergency Medical Network  \u2022  Fast Dispatch Coordination',
+                    'Emergency Medical Network • Fast Dispatch Coordination',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: textSecondary,
@@ -555,7 +555,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                     ),
                                   ),
                                   const SizedBox(width: 6),
-                                  const Text('  \u2022  Required', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                  const Text(' • Required', style: TextStyle(fontSize: 10, color: Colors.grey)),
                                 ],
                               ),
                               const SizedBox(height: 8),
@@ -761,7 +761,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             Padding(
                               padding: const EdgeInsets.only(top: 4, left: 4),
                               child: Text(
-                                'Age: $_derivedAge years ? Derived Band: $_effectiveAgeBand',
+                                'Age: $_derivedAge years • Triage Band: $_effectiveAgeBand',
                                 style: const TextStyle(fontSize: 11, color: Color(0xFF0284C7), fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -905,7 +905,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Text(
-                                              'Computed: Week $weeks  \u2022  ${_getTrimesterLabel(weeks)}',
+                                              'Computed: Week $weeks • ${_getTrimesterLabel(weeks)}',
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
@@ -1037,7 +1037,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
                   // FOOTER
                   Text(
-                    'Solace EMS ? 24/7 Rapid Ambulance & Hospital Intake Network',
+                    'Solace EMS • 24/7 Rapid Ambulance & Hospital Intake Network',
                     style: TextStyle(fontSize: 11, color: textSecondary),
                   ),
                 ],
