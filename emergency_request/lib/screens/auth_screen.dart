@@ -322,7 +322,7 @@ class _AuthScreenState extends State<AuthScreen> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // ── LOGO & HEADLINE ──────────────────────────────────────────
+                  // -- LOGO & HEADLINE ------------------------------------------
                   Container(
                     width: 64,
                     height: 64,
@@ -355,7 +355,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   const SizedBox(height: 4),
                   Text(
-                    'Emergency Medical Network • Fast Dispatch Coordination',
+                    'Emergency Medical Network  \u2022  Fast Dispatch Coordination',
                     textAlign: TextAlign.center,
                     style: TextStyle(
                       color: textSecondary,
@@ -365,7 +365,7 @@ class _AuthScreenState extends State<AuthScreen> {
                   ),
                   const SizedBox(height: 24),
 
-                  // ── ERROR BANNER ─────────────────────────────────────────────
+                  // -- ERROR BANNER ---------------------------------------------
                   if (_errorMessage != null) ...[
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -390,7 +390,7 @@ class _AuthScreenState extends State<AuthScreen> {
                     const SizedBox(height: 18),
                   ],
 
-                  // ── MAIN FORM CARD ───────────────────────────────────────────
+                  // -- MAIN FORM CARD -------------------------------------------
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 20),
                     decoration: BoxDecoration(
@@ -539,7 +539,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                           const SizedBox(height: 18),
 
-                          // ── CARE PLAN SELECTOR (Standard vs Maternal) ─────────
+                          // -- CARE PLAN SELECTOR (Standard vs Maternal) ---------
                           Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -555,7 +555,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                     ),
                                   ),
                                   const SizedBox(width: 6),
-                                  const Text('• Required', style: TextStyle(fontSize: 10, color: Colors.grey)),
+                                  const Text('  \u2022  Required', style: TextStyle(fontSize: 10, color: Colors.grey)),
                                 ],
                               ),
                               const SizedBox(height: 8),
@@ -587,7 +587,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                           color: primaryColor.withValues(alpha: 0.2),
                                           shape: BoxShape.circle,
                                         ),
-                                        child: const Text('🛡️', style: TextStyle(fontSize: 20)),
+                                        child: Icon(Icons.shield_rounded, size: 20, color: primaryColor),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
@@ -672,7 +672,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                           color: const Color(0xFFEC4899).withValues(alpha: 0.2),
                                           shape: BoxShape.circle,
                                         ),
-                                        child: const Text('🌸', style: TextStyle(fontSize: 20)),
+                                        child: const Icon(Icons.pregnant_woman_rounded, size: 20, color: Color(0xFFEC4899)),
                                       ),
                                       const SizedBox(width: 12),
                                       Expanded(
@@ -732,7 +732,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                           const SizedBox(height: 16),
 
-                          // ── CLIENT AGE / DOB SECTION ─────────────────────────
+                          // -- CLIENT AGE / DOB SECTION -------------------------
                           TextFormField(
                             controller: _dobController,
                             readOnly: true,
@@ -761,7 +761,7 @@ class _AuthScreenState extends State<AuthScreen> {
                             Padding(
                               padding: const EdgeInsets.only(top: 4, left: 4),
                               child: Text(
-                                'Age: $_derivedAge years • Derived Band: $_effectiveAgeBand',
+                                'Age: $_derivedAge years ? Derived Band: $_effectiveAgeBand',
                                 style: const TextStyle(fontSize: 11, color: Color(0xFF0284C7), fontWeight: FontWeight.w600),
                               ),
                             ),
@@ -790,7 +790,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ],
                           const SizedBox(height: 14),
 
-                          // ── OPTIONAL MEDICAL BASICS ──────────────────────────
+                          // -- OPTIONAL MEDICAL BASICS --------------------------
                           DropdownButtonFormField<String>(
                             value: _selectedBloodGroup,
                             dropdownColor: cardBg,
@@ -824,7 +824,7 @@ class _AuthScreenState extends State<AuthScreen> {
                           ),
                           const SizedBox(height: 14),
 
-                          // ── MATERNAL-SPECIFIC ONBOARDING FIELDS ──────────────
+                          // -- MATERNAL-SPECIFIC ONBOARDING FIELDS --------------
                           if (_selectedPlan == 'maternal') ...[
                             Container(
                               padding: const EdgeInsets.all(14),
@@ -838,7 +838,8 @@ class _AuthScreenState extends State<AuthScreen> {
                                 children: [
                                   Row(
                                     children: [
-                                      const Text('🌸 ', style: TextStyle(fontSize: 16)),
+                                      const Icon(Icons.pregnant_woman_rounded, size: 18, color: Color(0xFFEC4899)),
+                                       const SizedBox(width: 6),
                                       const Text(
                                         'Maternal Care Setup',
                                         style: TextStyle(
@@ -904,7 +905,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Text(
-                                            'Computed: Week $weeks • ${_getTrimesterLabel(weeks)}',
+                                              'Computed: Week \  \u2022  \',
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
@@ -1036,7 +1037,7 @@ class _AuthScreenState extends State<AuthScreen> {
 
                   // FOOTER
                   Text(
-                    'Solace EMS • 24/7 Rapid Ambulance & Hospital Intake Network',
+                    'Solace EMS ? 24/7 Rapid Ambulance & Hospital Intake Network',
                     style: TextStyle(fontSize: 11, color: textSecondary),
                   ),
                 ],
