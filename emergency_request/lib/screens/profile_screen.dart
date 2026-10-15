@@ -642,7 +642,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6, left: 4),
                         child: Text(
-                          'Age: \ years  \u2022  Triage Band: \',
+                          'Age: ${_derivedAge} years  \u2022  Triage Band: ${_effectiveAgeBand}',
                           style: const TextStyle(fontSize: 11.5, color: Color(0xFF0284C7), fontWeight: FontWeight.w700),
                         ),
                       ),
