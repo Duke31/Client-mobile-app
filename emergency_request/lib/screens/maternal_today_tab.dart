@@ -151,9 +151,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
       icon = '🌙';
     }
 
-    final rawName = widget.profile.displayName.isNotEmpty
-        ? widget.profile.displayName
-        : widget.profile.fullName;
+    final rawName = widget.profile.fullName;
     final firstName = rawName.trim().isNotEmpty
         ? rawName.trim().split(' ').first
         : '';
