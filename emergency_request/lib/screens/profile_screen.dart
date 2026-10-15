@@ -642,7 +642,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       Padding(
                         padding: const EdgeInsets.only(top: 6, left: 4),
                         child: Text(
-                          'Age: ${_derivedAge} years  \u2022  Triage Band: ${_effectiveAgeBand}',
+                          'Age: ${_derivedAge} years • Triage Band: ${_effectiveAgeBand}',
                           style: const TextStyle(fontSize: 11.5, color: Color(0xFF0284C7), fontWeight: FontWeight.w700),
                         ),
                       ),
@@ -842,6 +842,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   const SizedBox(height: 6),
                                   Text(
                                     'Standard',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
                                       fontSize: 13,
@@ -852,6 +854,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   Text(
                                     'Ambulance & Triage',
                                     textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(fontSize: 10, color: textSecondary),
                                   ),
                                 ],
@@ -884,6 +888,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   const SizedBox(height: 6),
                                   Text(
                                     'Maternal',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
                                       fontWeight: FontWeight.w800,
                                       fontSize: 13,
@@ -894,6 +900,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   Text(
                                     'Obstetric & Guidance',
                                     textAlign: TextAlign.center,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
                                     style: TextStyle(fontSize: 10, color: textSecondary),
                                   ),
                                 ],
@@ -1116,6 +1124,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             selected: selected,
                             selectedColor: const Color(0xFFEC4899),
                             checkmarkColor: Colors.white,
+                            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
                             onSelected: (val) {
                               setState(() {
                                 if (val) {
