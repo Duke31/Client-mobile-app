@@ -583,7 +583,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   const Text(
-                    'AMBULANCE EN ROUTE  \u2022  LIVE TRACKING',
+                    'AMBULANCE EN ROUTE  •  LIVE TRACKING',
                     style: TextStyle(
                       color: Colors.white,
                       fontSize: 12.5,
@@ -592,7 +592,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     ),
                   ),
                   Text(
-                    'Emergency dispatch active  \u2022  Tap to view ETA & Driver Radar',
+                    'Emergency dispatch active  •  Tap to view ETA & Driver Radar',
                     style: TextStyle(
                       color: Colors.white.withValues(alpha: 0.9),
                       fontSize: 11,
@@ -782,7 +782,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'My daily insights  \u2022  Today',
+              'My daily insights  •  Today',
               style: TextStyle(
                 fontSize: 16,
                 fontWeight: FontWeight.w900,
@@ -1296,7 +1296,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                   const Icon(Icons.spa_rounded, size: 24, color: Color(0xFF0284C7)),
                   Expanded(
                     child: Text(
-                      'Daily Care & Wellness  \u2022  ${_trimesterLabel}',
+                      'Daily Care & Wellness  •  ${_trimesterLabel}',
                       style: TextStyle(
                         fontSize: 17,
                         fontWeight: FontWeight.w900,
@@ -1349,7 +1349,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                   shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
                 ),
                 onPressed: () => Navigator.of(ctx).pop(),
-                child: const Text('Understood  \u2022  Feeling Good', style: TextStyle(fontWeight: FontWeight.w800)),
+                child: const Text('Understood  •  Feeling Good', style: TextStyle(fontWeight: FontWeight.w800)),
               ),
             ],
           ),
@@ -1473,7 +1473,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                             borderRadius: BorderRadius.circular(6),
                           ),
                           child: const Text(
-                            'Maternal Care Plan  \u2022  Active',
+                            'Maternal Care Plan  •  Active',
                             style: TextStyle(
                               color: Color(0xFFEC4899),
                               fontSize: 10,
@@ -1606,8 +1606,8 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                                   ),
                                   Text(
                                     _unreadAlertCount > 0
-                                        ? '$_unreadAlertCount new updates \u2022 $nextRefreshDisplay'
-                                        : 'All notifications caught up \u2022 $nextRefreshDisplay',
+                                        ? '$_unreadAlertCount new updates • $nextRefreshDisplay'
+                                        : 'All notifications caught up • $nextRefreshDisplay',
                                     maxLines: 1,
                                     overflow: TextOverflow.ellipsis,
                                     style: TextStyle(
@@ -1899,9 +1899,13 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 ),
               ),
               const SizedBox(width: 8),
-              Text(
-                time,
-                style: const TextStyle(fontSize: 10.5, color: Colors.grey, fontWeight: FontWeight.w600),
+              Flexible(
+                child: Text(
+                  time,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontSize: 10.5, color: Colors.grey, fontWeight: FontWeight.w600),
+                ),
               ),
             ],
           ),
@@ -2001,7 +2005,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                 child: Column(
                   children: [
                     _buildDetailMetricRow('Active Month', 'October 2026', isDark),
-                    _buildDetailMetricRow('Current Progress', 'Week ${_weeks}  \u2022  ${_trimesterLabel}', isDark),
+                    _buildDetailMetricRow('Current Progress', 'Week ${_weeks}  •  ${_trimesterLabel}', isDark),
                     _buildDetailMetricRow('Estimated Delivery Date', widget.profile.edd ?? 'Dec 15, 2026', isDark),
                     _buildDetailMetricRow('Days Remaining', '18 Days to full term (Day 280)', isDark),
                   ],
@@ -2121,7 +2125,7 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                     ),
                   ),
                   Text(
-                    'Refreshes daily at 8:00 AM  \u2022  ${MaternalContentService.getNextRefreshDisplay()}',
+                    'Refreshes daily at 8:00 AM  •  ${MaternalContentService.getNextRefreshDisplay()}',
                     style: TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
