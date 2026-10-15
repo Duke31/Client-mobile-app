@@ -445,7 +445,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
       );
     }
   }
-
   InputDecoration _inputDeco(String label, IconData icon, bool isDark, {String? hintText, Widget? suffixIcon}) {
     final border = OutlineInputBorder(
       borderRadius: BorderRadius.circular(12),
@@ -478,10 +477,82 @@ class _ProfileScreenState extends State<ProfileScreen> {
     );
   }
 
+  Widget _buildSectionCard({
+    required Widget child,
+    required bool isDark,
+    Color? borderColor,
+  }) {
+    final cardBg = isDark ? AppTheme.darkCard : Colors.white;
+    final defaultBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFE2E8F0);
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: cardBg,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: borderColor ?? defaultBorder),
+        boxShadow: [
+          BoxShadow(
+            color: Colors.black.withValues(alpha: isDark ? 0.2 : 0.03),
+            blurRadius: 8,
+            offset: const Offset(0, 2),
+          ),
+        ],
+      ),
+      child: child,
+    );
+  }
+
+  Widget _buildSectionHeader({
+    required IconData icon,
+    required String title,
+    String? subtitle,
+    required bool isDark,
+    Color iconColor = const Color(0xFF0284C7),
+  }) {
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final textSecondary = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(6),
+              decoration: BoxDecoration(
+                color: iconColor.withValues(alpha: 0.12),
+                borderRadius: BorderRadius.circular(8),
+              ),
+              child: Icon(icon, color: iconColor, size: 18),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                title,
+                style: TextStyle(
+                  fontSize: 14.5,
+                  fontWeight: FontWeight.w800,
+                  color: textColor,
+                  letterSpacing: -0.2,
+                ),
+              ),
+            ),
+          ],
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(height: 4),
+          Text(
+            subtitle,
+            style: TextStyle(fontSize: 11.5, color: textSecondary, height: 1.3),
+          ),
+        ],
+        const SizedBox(height: 14),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final cardBg = isDark ? AppTheme.darkCard : Colors.white;
     final cardBorder = isDark ? AppTheme.darkCardBorder : const Color(0xFFE2E8F0);
     final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
     final textSecondary = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
@@ -516,40 +587,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              // ════════════════════════════════════════════════════════════════
-              // BLOCK 1 — EMERGENCY MEDICAL ID (EVERYONE)
-              // ════════════════════════════════════════════════════════════════
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: cardBg,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: cardBorder),
-                ),
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 1. PATIENT IDENTITY
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              _buildSectionCard(
+                isDark: isDark,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.badge_rounded, color: Color(0xFF0284C7), size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Emergency Medical ID',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: textColor),
-                        ),
-                      ],
+                    _buildSectionHeader(
+                      icon: Icons.person_rounded,
+                      title: 'Patient Identity',
+                      subtitle: 'Legal name, contact phone, and verified triage age',
+                      isDark: isDark,
+                      iconColor: const Color(0xFF0284C7),
                     ),
-                    const SizedBox(height: 14),
-
-                    // Full Legal Name
                     TextFormField(
                       controller: _nameController,
-                      decoration: _inputDeco('Full Name *', Icons.person_rounded, isDark),
+                      decoration: _inputDeco('Full Name *', Icons.person_outline_rounded, isDark),
                       validator: (v) => v == null || v.trim().isEmpty ? 'Required for dispatch' : null,
                     ),
                     const SizedBox(height: 12),
-
-                    // Phone Number
                     TextFormField(
                       controller: _phoneController,
                       keyboardType: TextInputType.phone,
@@ -557,8 +615,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       validator: (v) => v == null || v.trim().isEmpty ? 'Required for dispatch' : null,
                     ),
                     const SizedBox(height: 12),
-
-                    // Date of Birth & Derived Age
                     TextFormField(
                       controller: _dobController,
                       readOnly: true,
@@ -584,21 +640,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     ),
                     if (_derivedAge != null) ...[
                       Padding(
-                        padding: const EdgeInsets.only(top: 4, left: 4),
+                        padding: const EdgeInsets.only(top: 6, left: 4),
                         child: Text(
-                          'Age: $_derivedAge years • Triage Band: $_effectiveAgeBand',
+                          'Age: $_derivedAge years â€¢ Triage Band: $_effectiveAgeBand',
                           style: const TextStyle(fontSize: 11.5, color: Color(0xFF0284C7), fontWeight: FontWeight.w700),
                         ),
                       ),
                     ] else ...[
-                      const SizedBox(height: 10),
+                      const SizedBox(height: 12),
                       DropdownButtonFormField<String>(
                         value: _selectedAgeBand,
+                        isExpanded: true,
+                        isDense: true,
                         decoration: _inputDeco('Age Group (Triage Band)', Icons.groups_rounded, isDark),
                         items: _ageBands.map((band) {
                           return DropdownMenuItem(
                             value: band['value'],
-                            child: Text(band['label']!, style: TextStyle(color: textColor, fontSize: 13)),
+                            child: Text(band['label']!, overflow: TextOverflow.ellipsis, style: TextStyle(color: textColor, fontSize: 13)),
                           );
                         }).toList(),
                         onChanged: (val) {
@@ -606,62 +664,42 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         },
                       ),
                     ],
-                    const SizedBox(height: 12),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
 
-                    // Blood Group (Plain labels only)
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 2. EMERGENCY MEDICAL BASELINE
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              _buildSectionCard(
+                isDark: isDark,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSectionHeader(
+                      icon: Icons.bloodtype_rounded,
+                      title: 'Medical Baseline',
+                      subtitle: 'Blood group and laboratory data for transfusion preparation',
+                      isDark: isDark,
+                      iconColor: const Color(0xFFDC2626),
+                    ),
                     DropdownButtonFormField<String>(
                       value: _selectedBloodGroup,
+                      isExpanded: true,
+                      isDense: true,
                       decoration: _inputDeco('Blood Group (Optional)', Icons.bloodtype_rounded, isDark),
                       items: _bloodGroups.map((bg) {
                         return DropdownMenuItem(
                           value: bg,
-                          child: Text(bg, style: TextStyle(color: textColor, fontSize: 13)),
+                          child: Text(bg, overflow: TextOverflow.ellipsis, style: TextStyle(color: textColor, fontSize: 13)),
                         );
                       }).toList(),
                       onChanged: (val) {
                         if (val != null) setState(() => _selectedBloodGroup = val);
                       },
                     ),
-                    const SizedBox(height: 12),
-
-                    // Known Allergies
-                    TextFormField(
-                      controller: _allergiesController,
-                      decoration: _inputDeco(
-                        'Known Allergies (Optional)',
-                        Icons.warning_amber_rounded,
-                        isDark,
-                        hintText: 'e.g. Penicillin, Sulfa, Aspirin',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Chronic Conditions
-                    TextFormField(
-                      controller: _conditionsController,
-                      decoration: _inputDeco(
-                        'Chronic Conditions (Optional)',
-                        Icons.health_and_safety_rounded,
-                        isDark,
-                        hintText: 'e.g. Asthma, Hypertension, Diabetes',
-                      ),
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Next of Kin
-                    TextFormField(
-                      controller: _kinNameController,
-                      decoration: _inputDeco('Next of Kin Name (Optional)', Icons.contacts_rounded, isDark),
-                    ),
-                    const SizedBox(height: 12),
-                    TextFormField(
-                      controller: _kinPhoneController,
-                      keyboardType: TextInputType.phone,
-                      decoration: _inputDeco('Next of Kin Phone (Optional)', Icons.phone_callback_rounded, isDark),
-                    ),
                     const SizedBox(height: 10),
-
-                    // Collapsed "More details" (Genotype)
                     Theme(
                       data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
                       child: ExpansionTile(
@@ -673,11 +711,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         children: [
                           DropdownButtonFormField<String>(
                             value: _selectedGenotype,
+                            isExpanded: true,
+                            isDense: true,
                             decoration: _inputDeco('Genotype (Optional)', Icons.biotech_rounded, isDark),
                             items: _genotypes.map((g) {
                               return DropdownMenuItem(
                                 value: g,
-                                child: Text(g, style: TextStyle(color: textColor, fontSize: 13)),
+                                child: Text(g, overflow: TextOverflow.ellipsis, style: TextStyle(color: textColor, fontSize: 13)),
                               );
                             }).toList(),
                             onChanged: (val) {
@@ -693,32 +733,90 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 16),
 
-              // ════════════════════════════════════════════════════════════════
-              // BLOCK 2 — CARE PLAN (STANDARD | MATERNAL)
-              // ════════════════════════════════════════════════════════════════
-              Container(
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: cardBg,
-                  borderRadius: BorderRadius.circular(18),
-                  border: Border.all(color: cardBorder),
-                ),
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 3. CLINICAL ALERTS & VITALS
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              _buildSectionCard(
+                isDark: isDark,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.medical_services_rounded, color: Color(0xFF0284C7), size: 20),
-                        const SizedBox(width: 8),
-                        Text(
-                          'Care Plan',
-                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w800, color: textColor),
-                        ),
-                      ],
+                    _buildSectionHeader(
+                      icon: Icons.warning_amber_rounded,
+                      title: 'Clinical Alerts',
+                      subtitle: 'Allergies & chronic conditions for safe paramedic drug selection',
+                      isDark: isDark,
+                      iconColor: const Color(0xFFD97706),
+                    ),
+                    TextFormField(
+                      controller: _allergiesController,
+                      decoration: _inputDeco(
+                        'Known Allergies (Optional)',
+                        Icons.warning_amber_rounded,
+                        isDark,
+                        hintText: 'e.g. Penicillin, Sulfa, Aspirin',
+                      ),
                     ),
                     const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _conditionsController,
+                      decoration: _inputDeco(
+                        'Chronic Conditions (Optional)',
+                        Icons.health_and_safety_rounded,
+                        isDark,
+                        hintText: 'e.g. Asthma, Hypertension, Diabetes',
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
 
-                    // Care Plan Toggle Cards
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 4. EMERGENCY NEXT OF KIN
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              _buildSectionCard(
+                isDark: isDark,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSectionHeader(
+                      icon: Icons.contacts_rounded,
+                      title: 'Emergency Next of Kin',
+                      subtitle: 'Point of contact reachable during active emergency mission',
+                      isDark: isDark,
+                      iconColor: const Color(0xFF7C3AED),
+                    ),
+                    TextFormField(
+                      controller: _kinNameController,
+                      decoration: _inputDeco('Next of Kin Name (Optional)', Icons.person_pin_rounded, isDark),
+                    ),
+                    const SizedBox(height: 12),
+                    TextFormField(
+                      controller: _kinPhoneController,
+                      keyboardType: TextInputType.phone,
+                      decoration: _inputDeco('Next of Kin Phone (Optional)', Icons.phone_callback_rounded, isDark),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
+
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 5. CARE PLAN SELECTION
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              _buildSectionCard(
+                isDark: isDark,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSectionHeader(
+                      icon: Icons.medical_services_rounded,
+                      title: 'Care Plan',
+                      subtitle: 'Select between standard emergency dispatch or maternal care',
+                      isDark: isDark,
+                      iconColor: const Color(0xFF0284C7),
+                    ),
                     Row(
                       children: [
                         // Standard Card
@@ -740,7 +838,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               child: Column(
                                 children: [
-                                  const Text('🛡️', style: TextStyle(fontSize: 22)),
+                                  const Text('ðŸ›¡ï¸', style: TextStyle(fontSize: 22)),
                                   const SizedBox(height: 6),
                                   Text(
                                     'Standard',
@@ -782,7 +880,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                               ),
                               child: Column(
                                 children: [
-                                  const Text('🌸', style: TextStyle(fontSize: 22)),
+                                  const Text('ðŸŒ¸', style: TextStyle(fontSize: 22)),
                                   const SizedBox(height: 6),
                                   Text(
                                     'Maternal',
@@ -794,7 +892,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                                   ),
                                   const SizedBox(height: 2),
                                   Text(
-                                    'Obstetric & Insights',
+                                    'Obstetric & Guidance',
                                     textAlign: TextAlign.center,
                                     style: TextStyle(fontSize: 10, color: textSecondary),
                                   ),
@@ -805,7 +903,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ),
                       ],
                     ),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: 14),
 
                     // Active Care Plan Badge
                     Container(
@@ -854,10 +952,28 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         ],
                       ),
                     ),
-                    const SizedBox(height: 16),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 16),
 
-                    // ── MATERNAL DETAILS (WHEN CARE PLAN = MATERNAL) ─────────
-                    if (isMaternal) ...[
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 6. MATERNAL OBSTETRIC PROFILE (WHEN CARE PLAN = MATERNAL)
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              if (isMaternal) ...[
+                _buildSectionCard(
+                  isDark: isDark,
+                  borderColor: const Color(0xFFEC4899).withValues(alpha: 0.4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _buildSectionHeader(
+                        icon: Icons.pregnant_woman_rounded,
+                        title: 'Maternal Obstetric Profile',
+                        subtitle: 'Automatic gestational tracking from verified clinical dates',
+                        isDark: isDark,
+                        iconColor: const Color(0xFFEC4899),
+                      ),
                       // READ-ONLY COMPUTED GESTATIONAL AGE & TRIMESTER
                       Container(
                         padding: const EdgeInsets.all(12),
@@ -869,20 +985,27 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         child: Row(
                           mainAxisAlignment: MainAxisAlignment.spaceBetween,
                           children: [
-                            Column(
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                const Text(
-                                  'Current Gestational Age (Computed):',
-                                  style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFBE185D)),
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  'Week $_computedWeeks, Day $_computedDays',
-                                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: textColor),
-                                ),
-                              ],
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  const Text(
+                                    'Current Gestational Age (Computed):',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: Color(0xFFBE185D)),
+                                  ),
+                                  const SizedBox(height: 2),
+                                  Text(
+                                    'Week $_computedWeeks, Day $_computedDays',
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: TextStyle(fontSize: 15, fontWeight: FontWeight.w900, color: textColor),
+                                  ),
+                                ],
+                              ),
                             ),
+                            const SizedBox(width: 8),
                             Container(
                               padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                               decoration: BoxDecoration(
@@ -1005,45 +1128,58 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           );
                         }).toList(),
                       ),
-                      const SizedBox(height: 16),
                     ],
+                  ),
+                ),
+                const SizedBox(height: 16),
+              ],
 
-                    // Preferred Hospital (Preference Only)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        DropdownButtonFormField<String>(
-                          value: _preferredHospital,
-                          decoration: _inputDeco('Preferred Hospital (Preference only)', Icons.local_hospital_rounded, isDark),
-                          isExpanded: true,
-                          items: _hospitals.map((h) {
-                            return DropdownMenuItem(
-                              value: h,
-                              child: Text(h, overflow: TextOverflow.ellipsis, style: TextStyle(color: textColor, fontSize: 12)),
-                            );
-                          }).toList(),
-                          onChanged: (val) {
-                            if (val != null) setState(() => _preferredHospital = val);
-                          },
-                        ),
-                        const SizedBox(height: 4),
-                        Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 4),
-                          child: Text(
-                            'Preference only — hospital admission and bed assignment are coordinated by emergency dispatch.',
-                            style: TextStyle(fontSize: 10.5, color: textSecondary, height: 1.25),
-                          ),
-                        ),
-                      ],
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 7. PREFERRED RECEIVING HOSPITAL
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              _buildSectionCard(
+                isDark: isDark,
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _buildSectionHeader(
+                      icon: Icons.local_hospital_rounded,
+                      title: 'Preferred Receiving Hospital',
+                      subtitle: 'Facility preference during ambulance dispatch routing',
+                      isDark: isDark,
+                      iconColor: const Color(0xFF059669),
+                    ),
+                    DropdownButtonFormField<String>(
+                      value: _preferredHospital,
+                      decoration: _inputDeco('Preferred Hospital (Preference only)', Icons.local_hospital_rounded, isDark),
+                      isExpanded: true,
+                      isDense: true,
+                      items: _hospitals.map((h) {
+                        return DropdownMenuItem(
+                          value: h,
+                          child: Text(h, overflow: TextOverflow.ellipsis, style: TextStyle(color: textColor, fontSize: 12)),
+                        );
+                      }).toList(),
+                      onChanged: (val) {
+                        if (val != null) setState(() => _preferredHospital = val);
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        'Preference only â€” hospital admission and bed assignment are coordinated by emergency dispatch.',
+                        style: TextStyle(fontSize: 10.5, color: textSecondary, height: 1.25),
+                      ),
                     ),
                   ],
                 ),
               ),
               const SizedBox(height: 20),
 
-              // ════════════════════════════════════════════════════════════════
-              // SAVE BUTTON
-              // ════════════════════════════════════════════════════════════════
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 8. SAVE BUTTON
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
               FilledButton(
                 onPressed: _isSaving ? null : _saveProfile,
                 style: FilledButton.styleFrom(
@@ -1064,9 +1200,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               const SizedBox(height: 20),
 
-              // ════════════════════════════════════════════════════════════════
-              // MANDATORY FOOTER DISCLAIMER
-              // ════════════════════════════════════════════════════════════════
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+              // 9. MANDATORY FOOTER DISCLAIMER
+              // â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
               Container(
                 padding: const EdgeInsets.all(14),
                 decoration: BoxDecoration(
