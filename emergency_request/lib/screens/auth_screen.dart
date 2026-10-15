@@ -905,7 +905,7 @@ class _AuthScreenState extends State<AuthScreen> {
                                           const SizedBox(width: 8),
                                           Expanded(
                                             child: Text(
-                                              'Computed: Week \  \u2022  \',
+                                              'Computed: Week $weeks  \u2022  ${_getTrimesterLabel(weeks)}',
                                               maxLines: 1,
                                               overflow: TextOverflow.ellipsis,
                                             style: const TextStyle(
