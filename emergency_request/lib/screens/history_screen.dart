@@ -177,8 +177,76 @@ class _HistoryScreenState extends State<HistoryScreen> {
             .limit(50);
       }
 
+      // Batch-resolve hospitals if missing
+      final hospitalIds = <String>{};
+      for (final r in res) {
+        if (r['hospital'] == null && r['hospital_id'] != null) {
+          hospitalIds.add(r['hospital_id'].toString());
+        }
+      }
+      if (hospitalIds.isNotEmpty) {
+        try {
+          final hospRows = await _supabase
+              .from('hospitals')
+              .select('id, name, address')
+              .filter('id', 'in', '(${hospitalIds.join(',')})');
+          if (hospRows is List) {
+            final hospMap = {for (final h in hospRows) h['id'].toString(): h};
+            for (final r in res) {
+              if (r['hospital'] == null && r['hospital_id'] != null) {
+                final h = hospMap[r['hospital_id'].toString()];
+                if (h != null) r['hospital'] = h;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
+      // Batch-resolve drivers if missing
+      final driverIds = <String>{};
+      for (final r in res) {
+        if (r['driver'] == null && r['driver_id'] != null) {
+          driverIds.add(r['driver_id'].toString());
+        }
+      }
+      if (driverIds.isNotEmpty) {
+        try {
+          final driverRows = await _supabase
+              .from('drivers')
+              .select('id, display_name, full_name, vehicle_label')
+              .filter('id', 'in', '(${driverIds.join(',')})');
+          if (driverRows is List) {
+            final driverMap = {for (final d in driverRows) d['id'].toString(): d};
+            for (final r in res) {
+              if (r['driver'] == null && r['driver_id'] != null) {
+                final d = driverMap[r['driver_id'].toString()];
+                if (d != null) r['driver'] = d;
+              }
+            }
+          }
+        } catch (_) {}
+      }
+
       final closed = <Map<String, dynamic>>[];
       final Map<String, PatientReviewData> parsedReviews = {};
+
+      // 0. Load client's user-metadata saved reviews (guaranteed client-side persistence)
+      final user = _supabase.auth.currentUser;
+      if (user != null) {
+        final metaReviews = user.userMetadata?['patient_reviews'];
+        if (metaReviews is Map) {
+          metaReviews.forEach((k, v) {
+            if (v is Map) {
+              parsedReviews[k.toString()] = PatientReviewData(
+                rating: (v['rating'] as num?)?.toInt() ?? 5,
+                remark: v['remark']?.toString() ?? '',
+                tags: List<String>.from(v['tags'] ?? []),
+                submittedAt: v['submitted_at']?.toString(),
+              );
+            }
+          });
+        }
+      }
 
       for (final row in List<Map<String, dynamic>>.from(res)) {
         final st = (row['status']?.toString() ?? '').toLowerCase();
@@ -246,7 +314,30 @@ class _HistoryScreenState extends State<HistoryScreen> {
             req['notes'] = newNotes;
           });
 
-          // 1. Save to Supabase via dedicated SECURITY DEFINER RPC
+          // 1. Persist directly to user's auth metadata so it is guaranteed saved on the client app immediately
+          try {
+            final user = _supabase.auth.currentUser;
+            if (user != null) {
+              final existingMeta = Map<String, dynamic>.from(user.userMetadata ?? {});
+              final existingReviews = Map<String, dynamic>.from(existingMeta['patient_reviews'] as Map? ?? {});
+              existingReviews[reqId] = {
+                'rating': rating,
+                'remark': remark,
+                'tags': tags,
+                'submitted_at': dateStr,
+              };
+              await _supabase.auth.updateUser(UserAttributes(
+                data: {
+                  ...existingMeta,
+                  'patient_reviews': existingReviews,
+                },
+              ));
+            }
+          } catch (metaErr) {
+            debugPrint('User metadata review persist notice: $metaErr');
+          }
+
+          // 2. Save to Supabase via dedicated SECURITY DEFINER RPC
           try {
             await _supabase.rpc('client_submit_patient_review', params: {
               'p_request_id': reqId,
@@ -263,12 +354,17 @@ class _HistoryScreenState extends State<HistoryScreen> {
             }
           }
 
-          // 2. Guaranteed server-side persist via Ops Dashboard /api/reviews (service role backed)
+          // 3. Guaranteed server-side persist via Ops Dashboard /api/reviews with Authorization token
           try {
+            final session = _supabase.auth.currentSession;
+            final token = session?.accessToken;
             final url = Uri.parse('https://ops-dashboard-eta-ten.vercel.app/api/reviews');
             final resp = await http.post(
               url,
-              headers: {'Content-Type': 'application/json'},
+              headers: {
+                'Content-Type': 'application/json',
+                if (token != null) 'Authorization': 'Bearer $token',
+              },
               body: jsonEncode({
                 'requestId': reqId,
                 'rating': rating,
@@ -481,6 +577,22 @@ class _HistoryScreenState extends State<HistoryScreen> {
     if (req['hospital'] is Map) {
       hospitalName = req['hospital']['name']?.toString();
     }
+    hospitalName ??= req['hospital_name']?.toString() ?? req['destination_hospital']?.toString();
+    if (hospitalName == null || hospitalName.trim().isEmpty) {
+      final notes = req['notes']?.toString() ?? '';
+      final admittedMatch = RegExp(r'(?:ADMITTED TO|ADMITTED|HOSPITAL):\s*([^|\]\n\r]+)', caseSensitive: false).firstMatch(notes);
+      if (admittedMatch != null) {
+        hospitalName = admittedMatch.group(1)?.trim();
+      } else {
+        final hintMatch = RegExp(r'\[PREFERRED HOSPITAL HINT:\s*([^(\]]+)', caseSensitive: false).firstMatch(notes);
+        if (hintMatch != null) {
+          hospitalName = hintMatch.group(1)?.trim();
+        }
+      }
+    }
+    final displayHospital = (hospitalName != null && hospitalName.trim().isNotEmpty)
+        ? hospitalName.trim()
+        : 'Admitted Hospital';
     String? driverName;
     String? vehicleLabel;
     if (req['driver'] is Map) {
@@ -649,7 +761,7 @@ class _HistoryScreenState extends State<HistoryScreen> {
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
-                                hospitalName ?? 'Regional ER Bay',
+                                displayHospital,
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: TextStyle(
@@ -928,6 +1040,22 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
     if (req['hospital'] is Map) {
       hospitalName = req['hospital']['name']?.toString();
     }
+    hospitalName ??= req['hospital_name']?.toString() ?? req['destination_hospital']?.toString();
+    if (hospitalName == null || hospitalName.trim().isEmpty) {
+      final notes = req['notes']?.toString() ?? '';
+      final admittedMatch = RegExp(r'(?:ADMITTED TO|ADMITTED|HOSPITAL):\s*([^|\]\n\r]+)', caseSensitive: false).firstMatch(notes);
+      if (admittedMatch != null) {
+        hospitalName = admittedMatch.group(1)?.trim();
+      } else {
+        final hintMatch = RegExp(r'\[PREFERRED HOSPITAL HINT:\s*([^(\]]+)', caseSensitive: false).firstMatch(notes);
+        if (hintMatch != null) {
+          hospitalName = hintMatch.group(1)?.trim();
+        }
+      }
+    }
+    final displayHospital = (hospitalName != null && hospitalName.trim().isNotEmpty)
+        ? hospitalName.trim()
+        : 'Admitted Hospital';
     String? driverName;
     String? vehicleLabel;
     if (req['driver'] is Map) {
@@ -1025,7 +1153,7 @@ class _ArchivedMissionDetailSheetState extends State<_ArchivedMissionDetailSheet
                   children: [
                     _buildArchiveRow('Pickup Location:', address, textPrimary, textMuted),
                     const SizedBox(height: 6),
-                    _buildArchiveRow('Hospital ER:', hospitalName ?? 'Regional ER Center', textPrimary, textMuted),
+                    _buildArchiveRow('Admitted Hospital:', displayHospital, textPrimary, textMuted),
                     const SizedBox(height: 6),
                     _buildArchiveRow('Ambulance Crew:', '${driverName ?? "Paramedic Unit"} (${vehicleLabel ?? "Solace Unit"})', textPrimary, textMuted),
                   ],
