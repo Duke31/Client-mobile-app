@@ -1,4 +1,4 @@
-import '../utils/error_sanitizer.dart';
+﻿import '../utils/error_sanitizer.dart';
 import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -832,9 +832,9 @@ class RequestScreenState extends State<RequestScreen>
     final name = (_profileName ?? widget.initialProfile?.fullName ?? '').trim();
     final displayName = _formatClientGreetingName(name);
     if (displayName.isNotEmpty) {
-      return '$greeting, $displayName  \u2022  24/7 Active';
+      return '$greeting, $displayName  •  24/7 Active';
     }
-    return '$greeting  \u2022  24/7 Active';
+    return '$greeting  •  24/7 Active';
   }
   @override
   Widget build(BuildContext context) {
@@ -976,7 +976,7 @@ class RequestScreenState extends State<RequestScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'AMBULANCE EN ROUTE  \u2022  ${_activeMission!['status']?.toString().toUpperCase()}',
+                                'AMBULANCE EN ROUTE  •  ${_activeMission!['status']?.toString().toUpperCase()}',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -986,7 +986,7 @@ class RequestScreenState extends State<RequestScreen>
                                 ),
                               ),
                               Text(
-                                'Unit: ${_activeMission!['drivers']?['vehicle_label'] ?? 'Assigned Medic'}  \u2022  Tap to Track Live',
+                                'Unit: ${_activeMission!['drivers']?['vehicle_label'] ?? 'Assigned Medic'}  •  Tap to Track Live',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -1223,7 +1223,7 @@ class RequestScreenState extends State<RequestScreen>
                           SizedBox(width: 6),
                           Flexible(
                             child: Text(
-                              'SOLACE RAPID RESPONSE  \u2022  24/7 EMS NETWORK ACTIVE',
+                              'SOLACE RAPID RESPONSE  •  24/7 EMS NETWORK ACTIVE',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -1318,8 +1318,8 @@ class RequestScreenState extends State<RequestScreen>
                                               ),
                                               Text(
                                                 _profileIsMaternal
-                                                    ? 'Obstetric Protocol  \u2022  En-route Paramedic Triage'
-                                                    : 'Rapid Ambulance Dispatch  \u2022  En-route Care',
+                                                    ? 'Obstetric Protocol  •  En-route Paramedic Triage'
+                                                    : 'Rapid Ambulance Dispatch  •  En-route Care',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
@@ -1807,7 +1807,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                       ),
                       Text(
                         widget.isMaternal
-                            ? 'Obstetric Emergency Triage  \u2022  En-route Paramedic Assessment'
+                            ? 'Obstetric Emergency Triage  •  En-route Paramedic Assessment'
                             : 'Select condition & confirm pickup landmark for crew',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
