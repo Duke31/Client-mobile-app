@@ -132,6 +132,82 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
   int get _days => widget.profile.computedDays;
   int get _pregnancyDay => widget.profile.pregnancyDay;
   String get _trimesterLabel => widget.profile.trimesterLabel;
+  bool get _isLateTrimester => _weeks >= 28;
+
+  Widget _buildGreetingGesture(bool isDark) {
+    final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+    final subColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+    final hour = DateTime.now().hour;
+    String greeting;
+    String icon;
+    if (hour < 12) {
+      greeting = 'Good morning';
+      icon = '☀️';
+    } else if (hour < 17) {
+      greeting = 'Good afternoon';
+      icon = '🌤️';
+    } else {
+      greeting = 'Good evening';
+      icon = '🌙';
+    }
+
+    final rawName = widget.profile.displayName.isNotEmpty
+        ? widget.profile.displayName
+        : widget.profile.fullName;
+    final firstName = rawName.trim().isNotEmpty
+        ? rawName.trim().split(' ').first
+        : '';
+    final title = firstName.isNotEmpty ? '$greeting, $firstName $icon' : '$greeting $icon';
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: isDark ? const Color(0xFF1E293B).withValues(alpha: 0.6) : Colors.white.withValues(alpha: 0.85),
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(
+          color: isDark ? const Color(0xFF334155) : const Color(0xFFFFE0D2),
+        ),
+      ),
+      child: Row(
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFF8A65).withValues(alpha: 0.15),
+              shape: BoxShape.circle,
+            ),
+            child: const Text('🌸', style: TextStyle(fontSize: 16)),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 14.5,
+                    fontWeight: FontWeight.w800,
+                    color: textColor,
+                    letterSpacing: -0.2,
+                  ),
+                ),
+                Text(
+                  'Wishing you and your baby a restful, healthy day.',
+                  style: TextStyle(
+                    fontSize: 11,
+                    fontWeight: FontWeight.w500,
+                    color: subColor,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   String get _monthName {
     final now = DateTime.now();
@@ -178,7 +254,10 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               children: [
                 // ── 1. Top Header Bar ────────────────────────────────────────
                 _buildTopAppBar(isDark),
-                const SizedBox(height: 14),
+                const SizedBox(height: 12),
+
+                // ── Welcome & Time-of-Day Greeting Gesture ───────────────────
+                _buildGreetingGesture(isDark),
 
                 // ── 2. Horizontal Weekly Calendar Strip with 'TODAY' Marker ──
                 _buildWeeklyCalendarStrip(isDark),
@@ -750,29 +829,51 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
             ),
             const SizedBox(width: 10),
 
-            // Card 3: Warm Yellow (Watch-outs)
+            // Card 3: Late Trimester Watch-outs OR Gentle Daily Care (for early/mid trimesters)
             Expanded(
-              child: _buildInsightCard(
-                isDark: isDark,
-                borderColor: const Color(0xFFFDE68A),
-                headerBg: const Color(0xFFFEF3C7),
-                tagText: _trimesterLabel,
-                tagTextColor: const Color(0xFF92400E),
-                mainContent: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFD97706),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(
-                    Icons.add_rounded,
-                    color: Colors.white,
-                    size: 22,
-                  ),
-                ),
-                bottomLabel: 'Watch-outs',
-                onTap: _showMaternalWatchoutsSheet,
-              ),
+              child: _isLateTrimester
+                  ? _buildInsightCard(
+                      isDark: isDark,
+                      borderColor: const Color(0xFFFDE68A),
+                      headerBg: const Color(0xFFFEF3C7),
+                      tagText: _trimesterLabel,
+                      tagTextColor: const Color(0xFF92400E),
+                      mainContent: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFD97706),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.add_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      bottomLabel: 'Watch-outs',
+                      onTap: _showMaternalWatchoutsSheet,
+                    )
+                  : _buildInsightCard(
+                      isDark: isDark,
+                      borderColor: const Color(0xFFBAE6FD),
+                      headerBg: const Color(0xFFF0F9FF),
+                      tagText: _trimesterLabel,
+                      tagTextColor: const Color(0xFF0284C7),
+                      mainContent: Container(
+                        padding: const EdgeInsets.all(6),
+                        decoration: const BoxDecoration(
+                          color: Color(0xFF0284C7),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.spa_rounded,
+                          color: Colors.white,
+                          size: 22,
+                        ),
+                      ),
+                      bottomLabel: 'Daily care',
+                      onTap: _showDailyCareSheet,
+                    ),
             ),
           ],
         ),
@@ -1050,8 +1151,9 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
     );
   }
 
-  // ── Modal Sheet: Maternal Red Flag Watch-outs ──────────────────────────────
+  // ── Modal Sheet: Maternal Red Flag Watch-outs (Late Trimester Only) ────────
   void _showMaternalWatchoutsSheet() {
+    if (!_isLateTrimester) return;
     showModalBottomSheet<void>(
       context: context,
       isScrollControlled: true,
@@ -1129,6 +1231,154 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
               children: [
                 Text(title, style: TextStyle(fontSize: 13, fontWeight: FontWeight.bold, color: isDark ? Colors.white : const Color(0xFF0F172A))),
                 Text(desc, style: TextStyle(fontSize: 11.5, color: isDark ? Colors.white60 : const Color(0xFF64748B))),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Modal Sheet: Gentle Daily Care & Wellness (Early/Mid Trimesters) ───────
+  void _showDailyCareSheet() {
+    showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      backgroundColor: Colors.transparent,
+      builder: (ctx) {
+        final isDark = Theme.of(ctx).brightness == Brightness.dark;
+        final textColor = isDark ? Colors.white : const Color(0xFF0F172A);
+        final subColor = isDark ? const Color(0xFF94A3B8) : const Color(0xFF64748B);
+        return Container(
+          decoration: BoxDecoration(
+            color: isDark ? const Color(0xFF0F172A) : Colors.white,
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(24)),
+          ),
+          padding: const EdgeInsets.fromLTRB(20, 16, 20, 28),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade400,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 16),
+              Row(
+                children: [
+                  const Text('🌱 ', style: TextStyle(fontSize: 22)),
+                  Expanded(
+                    child: Text(
+                      'Daily Care & Wellness • $_trimesterLabel',
+                      style: TextStyle(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w900,
+                        color: textColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 6),
+              Text(
+                'Simple, calming daily habits to keep you and your baby feeling comfortable and nurtured.',
+                style: TextStyle(fontSize: 12, color: subColor),
+              ),
+              const SizedBox(height: 16),
+              _buildDailyCareTipTile(
+                icon: Icons.water_drop_rounded,
+                iconColor: const Color(0xFF0284C7),
+                title: 'Gentle Hydration',
+                desc: 'Drink water regularly throughout the day. Staying well-hydrated supports your natural energy and comfort.',
+                isDark: isDark,
+              ),
+              _buildDailyCareTipTile(
+                icon: Icons.bedtime_rounded,
+                iconColor: const Color(0xFF7C3AED),
+                title: 'Rest & Comfort',
+                desc: 'Take brief rests whenever you feel fatigued. Resting comfortably on your left side optimizes circulation.',
+                isDark: isDark,
+              ),
+              _buildDailyCareTipTile(
+                icon: Icons.restaurant_rounded,
+                iconColor: const Color(0xFF059669),
+                title: 'Nourishing Snacks',
+                desc: 'Small, frequent nutrient-rich meals help keep your blood sugar steady and reduce mild pregnancy fatigue.',
+                isDark: isDark,
+              ),
+              _buildDailyCareTipTile(
+                icon: Icons.favorite_rounded,
+                iconColor: const Color(0xFFEC4899),
+                title: '24/7 Specialist Support',
+                desc: 'Have questions or feel uncertain? You can reach Solace obstetric specialists anytime with one tap.',
+                isDark: isDark,
+              ),
+              const SizedBox(height: 20),
+              FilledButton(
+                style: FilledButton.styleFrom(
+                  backgroundColor: const Color(0xFF0284C7),
+                  foregroundColor: Colors.white,
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                ),
+                onPressed: () => Navigator.of(ctx).pop(),
+                child: const Text('Understood • Feeling Good', style: TextStyle(fontWeight: FontWeight.w800)),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildDailyCareTipTile({
+    required IconData icon,
+    required Color iconColor,
+    required String title,
+    required String desc,
+    required bool isDark,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Container(
+            padding: const EdgeInsets.all(7),
+            decoration: BoxDecoration(
+              color: iconColor.withValues(alpha: 0.12),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Icon(icon, color: iconColor, size: 18),
+          ),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.bold,
+                    color: isDark ? Colors.white : const Color(0xFF0F172A),
+                  ),
+                ),
+                const SizedBox(height: 2),
+                Text(
+                  desc,
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: isDark ? Colors.white60 : const Color(0xFF64748B),
+                    height: 1.3,
+                  ),
+                ),
               ],
             ),
           ),
