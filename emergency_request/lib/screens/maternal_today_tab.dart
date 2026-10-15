@@ -1385,6 +1385,8 @@ class _MaternalTodayTabState extends State<MaternalTodayTab> {
                                   title: 'Daily Care Guidance',
                                   body: 'Rest well, drink plenty of water, and keep up with your daily prenatal vitamins today.',
                                   time: 'Refreshed 8:00 AM',
+                                  actionLabel: 'Dismiss',
+                                  onAction: () => Navigator.of(ctx).pop(),
                                   isDark: isDark,
                                 ),
                               );
