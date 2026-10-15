@@ -393,7 +393,7 @@ class RequestScreenState extends State<RequestScreen>
 
       if (mounted && userInitiated) {
         final acc = freshFix.accuracyMeters != null
-            ? '±${freshFix.accuracyMeters!.round()}m'
+            ? '\u00B1\m'
             : '';
         final msg = offsetDistance > 10.0
             ? 'GPS Recalibrated (adjusted by ${offsetDistance.round()}m $acc)'
@@ -529,7 +529,7 @@ class RequestScreenState extends State<RequestScreen>
 
       final notesList = <String>[];
       if (intake.manualAddress != null && intake.manualAddress!.trim().isNotEmpty) {
-        notesList.add('📍 Landmark: ${intake.manualAddress!.trim()}');
+        notesList.add('Landmark: \');
       }
       if (intake.notes != null && intake.notes!.trim().isNotEmpty) {
         notesList.add('Note: ${intake.notes!.trim()}');
@@ -796,7 +796,28 @@ class RequestScreenState extends State<RequestScreen>
     );
   }
 
-  @override
+  String _formatClientGreetingName(String raw) {
+    final trimmed = raw.trim();
+    if (trimmed.isEmpty) return '';
+    final parts = trimmed.split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '';
+
+    const honorifics = {
+      'mrs', 'mr', 'ms', 'miss', 'dr', 'prof', 'professor', 'chief', 'pastor',
+      'rev', 'reverend', 'elder', 'deacon', 'deaconess', 'madam', 'lady', 'sir',
+      'barrister', 'barr', 'engr', 'engineer', 'alhaj', 'alhaji', 'alhaja'
+    };
+
+    final firstClean = parts.first.toLowerCase().replaceAll('.', '');
+    if (honorifics.contains(firstClean)) {
+      if (parts.length > 1) {
+        return '\ \';
+      }
+      return '';
+    }
+    return parts.first;
+  }
+
   String get _timeGreetingSubtitle {
     final hour = DateTime.now().hour;
     String greeting;
@@ -809,14 +830,12 @@ class RequestScreenState extends State<RequestScreen>
     }
 
     final name = (_profileName ?? widget.initialProfile?.fullName ?? '').trim();
-    if (name.isNotEmpty) {
-      final firstName = name.split(' ').first;
-      return '$greeting, $firstName • 24/7 Active';
+    final displayName = _formatClientGreetingName(name);
+    if (displayName.isNotEmpty) {
+      return '$greeting, $displayName  \u2022  24/7 Active';
     }
-    return '$greeting • 24/7 Active';
+    return '$greeting  \u2022  24/7 Active';
   }
-
-  @override
   Widget build(BuildContext context) {
     if (_activeMission == null && _submitting) {
       _submitting = false;
@@ -956,7 +975,7 @@ class RequestScreenState extends State<RequestScreen>
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                '🚨 AMBULANCE EN ROUTE • ${_activeMission!['status']?.toString().toUpperCase()}',
+                                'AMBULANCE EN ROUTE  \u2022  \',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -966,7 +985,7 @@ class RequestScreenState extends State<RequestScreen>
                                 ),
                               ),
                               Text(
-                                'Unit: ${_activeMission!['drivers']?['vehicle_label'] ?? 'Assigned Medic'} • Tap to Track Live',
+                                'Unit: \  \u2022  Tap to Track Live',
                                 maxLines: 1,
                                 overflow: TextOverflow.ellipsis,
                                 style: const TextStyle(
@@ -1049,8 +1068,8 @@ class RequestScreenState extends State<RequestScreen>
                                   ? 'Manual Pin (Tap GPS to reset)'
                                   : (accuracy != null
                                       ? (accuracy <= 25
-                                          ? 'GPS Locked ±${accuracy.round()}m'
-                                          : 'Calibrating GPS (±${accuracy.round()}m)...')
+                                          ? 'GPS Locked (\u00B1\m)'
+                                          : 'Calibrating GPS (\u00B1\m)...')
                                       : 'Acquiring GPS...'),
                               style: const TextStyle(
                                 color: Colors.white,
@@ -1203,7 +1222,7 @@ class RequestScreenState extends State<RequestScreen>
                           SizedBox(width: 6),
                           Flexible(
                             child: Text(
-                              'SOLACE RAPID RESPONSE • 24/7 EMS NETWORK ACTIVE',
+                              'SOLACE RAPID RESPONSE  \u2022  24/7 EMS NETWORK ACTIVE',
                               maxLines: 1,
                               overflow: TextOverflow.ellipsis,
                               style: TextStyle(
@@ -1298,8 +1317,8 @@ class RequestScreenState extends State<RequestScreen>
                                               ),
                                               Text(
                                                 _profileIsMaternal
-                                                    ? 'Obstetric Protocol • En-route Paramedic Triage'
-                                                    : 'Rapid Ambulance Dispatch • En-route Care',
+                                                    ? 'Obstetric Protocol  \u2022  En-route Paramedic Triage'
+                                                    : 'Rapid Ambulance Dispatch  \u2022  En-route Care',
                                                 maxLines: 1,
                                                 overflow: TextOverflow.ellipsis,
                                                 style: TextStyle(
@@ -1787,7 +1806,7 @@ class _EmergencyConfirmSheetState extends State<_EmergencyConfirmSheet> {
                       ),
                       Text(
                         widget.isMaternal
-                            ? 'Obstetric Emergency Triage • En-route Paramedic Assessment'
+                            ? 'Obstetric Emergency Triage  \u2022  En-route Paramedic Assessment'
                             : 'Select condition & confirm pickup landmark for crew',
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
